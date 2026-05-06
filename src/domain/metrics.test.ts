@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { applyFlows } from './flows';
-import { computeFanChartBands, computeMetrics } from './metrics';
+import { computeFanChartBands, computeMetrics, computeTailRiskAtHorizons } from './metrics';
 import { band, mean, median, percentile, stdSample } from './stats';
 import type { FlowRule, PlanSpec } from './types';
 
@@ -678,5 +678,94 @@ describe('computeFanChartBands', () => {
     expect(() =>
       computeFanChartBands(sim.values, nPaths, H, new Uint32Array(0)),
     ).toThrow(/vacío/);
+  });
+
+  it('p5 y p95 (Fase D) están definidos y respetan ordenamiento', () => {
+    const H = 12;
+    const nPaths = 200;
+    const returns = new Float32Array(nPaths * H);
+    // Distribución: cada path tiene un retorno mensual constante distinto.
+    for (let p = 0; p < nPaths; p++) {
+      const r = (p - nPaths / 2) / 5000;
+      for (let i = 0; i < H; i++) returns[p * H + i] = r;
+    }
+    const sim = applyFlows({ plan: plan({ horizonMonths: H, initialCapital: 1000 }), portfolioReturns: returns, nPaths });
+    const bands = computeFanChartBands(sim.values, nPaths, H);
+    expect(bands.p5).toBeDefined();
+    expect(bands.p95).toBeDefined();
+    // Para cada mes: p5 ≤ p10 ≤ p25 ≤ p50 ≤ p75 ≤ p90 ≤ p95.
+    for (let t = 0; t <= H; t++) {
+      expect(bands.p5[t]).toBeLessThanOrEqual(bands.p10[t]);
+      expect(bands.p10[t]).toBeLessThanOrEqual(bands.p25[t]);
+      expect(bands.p25[t]).toBeLessThanOrEqual(bands.p50[t]);
+      expect(bands.p50[t]).toBeLessThanOrEqual(bands.p75[t]);
+      expect(bands.p75[t]).toBeLessThanOrEqual(bands.p90[t]);
+      expect(bands.p90[t]).toBeLessThanOrEqual(bands.p95[t]);
+    }
+  });
+});
+
+describe('computeTailRiskAtHorizons (Fase D — feedback Pocho)', () => {
+  it('CVaR_5 ≤ P5 ≤ P95 ≤ CVaR_95 (invariante de cola)', () => {
+    const H = 24;
+    const nPaths = 500;
+    const returns = new Float32Array(nPaths * H);
+    // Distribución dispersa pero monótona path-a-path.
+    for (let p = 0; p < nPaths; p++) {
+      const r = -0.02 + (p / nPaths) * 0.04;
+      for (let i = 0; i < H; i++) returns[p * H + i] = r;
+    }
+    const sim = applyFlows({ plan: plan({ horizonMonths: H, initialCapital: 1000 }), portfolioReturns: returns, nPaths });
+    const tails = computeTailRiskAtHorizons(sim.values, nPaths, H, [12, 24]);
+    expect(tails).toHaveLength(2);
+    for (const t of tails) {
+      expect(t.cvar5).toBeLessThanOrEqual(t.p5);
+      expect(t.p5).toBeLessThanOrEqual(t.p95);
+      expect(t.p95).toBeLessThanOrEqual(t.cvar95);
+      expect(t.nPaths).toBe(nPaths);
+    }
+  });
+
+  it('los anchors se respetan', () => {
+    const H = 36;
+    const nPaths = 100;
+    const returns = new Float32Array(nPaths * H);
+    const sim = applyFlows({ plan: plan({ horizonMonths: H, initialCapital: 1000 }), portfolioReturns: returns, nPaths });
+    const tails = computeTailRiskAtHorizons(sim.values, nPaths, H, [6, 18, 36]);
+    expect(tails.map((t) => t.monthIdx)).toEqual([6, 18, 36]);
+  });
+
+  it('lanza error si anchor está fuera de rango', () => {
+    const H = 12;
+    const nPaths = 50;
+    const returns = new Float32Array(nPaths * H);
+    const sim = applyFlows({ plan: plan({ horizonMonths: H, initialCapital: 1000 }), portfolioReturns: returns, nPaths });
+    expect(() => computeTailRiskAtHorizons(sim.values, nPaths, H, [-1])).toThrow(/anchor/);
+    expect(() => computeTailRiskAtHorizons(sim.values, nPaths, H, [13])).toThrow(/anchor/);
+  });
+
+  it('CVaR captura magnitud media de la cola, no solo el cutoff', () => {
+    const H = 12;
+    const nPaths = 1000;
+    // Cola izquierda con pérdidas extremas (-5%/mo) en 5% de paths;
+    // resto plano. CVaR_5 debe estar BIEN debajo de P5.
+    const returns = new Float32Array(nPaths * H);
+    for (let p = 0; p < nPaths; p++) {
+      const r = p < 50 ? -0.05 : 0;
+      for (let i = 0; i < H; i++) returns[p * H + i] = r;
+    }
+    const sim = applyFlows({ plan: plan({ horizonMonths: H, initialCapital: 1000 }), portfolioReturns: returns, nPaths });
+    const [tail] = computeTailRiskAtHorizons(sim.values, nPaths, H, [12]);
+    const expectedCrash = 1000 * Math.pow(1 - 0.05, 12); // ≈ 540
+    // Toda la cola izquierda está concentrada en valores cerca del crash —
+    // CVaR_5 debe estar muy cerca de ese valor.
+    expect(tail.cvar5).toBeCloseTo(expectedCrash, 0);
+    // P5 también está en la cola, así que también está cerca, pero p5 ≥ cvar5.
+    expect(tail.p5).toBeGreaterThanOrEqual(tail.cvar5);
+  });
+
+  it('values.length inválido lanza error', () => {
+    const values = new Float32Array(100);
+    expect(() => computeTailRiskAtHorizons(values, 5, 24, [12])).toThrow(/values\.length/);
   });
 });

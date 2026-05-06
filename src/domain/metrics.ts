@@ -492,6 +492,8 @@ export function computeMetrics(input: MetricsInput): WindowMetrics {
 export type FanChartBands = {
   /** Meses 0..H (inclusivo). Length = H + 1. */
   monthIdx: Int32Array;
+  /** Percentil 5 por mes (across paths) — extensión Fase D para colas. */
+  p5: Float32Array;
   /** Percentil 10 por mes (across paths). */
   p10: Float32Array;
   /** Percentil 25 por mes. */
@@ -502,6 +504,8 @@ export type FanChartBands = {
   p75: Float32Array;
   /** Percentil 90 por mes. */
   p90: Float32Array;
+  /** Percentil 95 por mes — extensión Fase D para colas. */
+  p95: Float32Array;
 };
 
 /**
@@ -541,11 +545,13 @@ export function computeFanChartBands(
   const monthIdx = new Int32Array(nCols);
   for (let t = 0; t < nCols; t++) monthIdx[t] = t;
 
+  const p5 = new Float32Array(nCols);
   const p10 = new Float32Array(nCols);
   const p25 = new Float32Array(nCols);
   const p50 = new Float32Array(nCols);
   const p75 = new Float32Array(nCols);
   const p90 = new Float32Array(nCols);
+  const p95 = new Float32Array(nCols);
 
   const col = new Float64Array(n);
 
@@ -574,12 +580,106 @@ export function computeFanChartBands(
     // regresión futura deja filtrar un residuo negativo (roundoff Float32, etc.),
     // el fan chart NUNCA mostrará bandas por debajo de 0 USD. No es un workaround,
     // es un invariante visual del chart (el valor patrimonial no puede ser < 0).
+    p5[t] = Math.max(0, pick(0.05));
     p10[t] = Math.max(0, pick(0.1));
     p25[t] = Math.max(0, pick(0.25));
     p50[t] = Math.max(0, pick(0.5));
     p75[t] = Math.max(0, pick(0.75));
     p90[t] = Math.max(0, pick(0.9));
+    p95[t] = Math.max(0, pick(0.95));
   }
 
-  return { monthIdx, p10, p25, p50, p75, p90 };
+  return { monthIdx, p5, p10, p25, p50, p75, p90, p95 };
+}
+
+// ---------------------------------------------------------------------------
+// Tail risk (Fase D — feedback Pocho 2026-05-05): CVaR / Expected Shortfall
+// ---------------------------------------------------------------------------
+
+export type TailRiskAtHorizon = {
+  /** Mes en el horizonte (1-indexed dentro del plan). */
+  monthIdx: number;
+  /** Percentil 5 del valor cross-sectional al horizonte. */
+  p5: number;
+  /** Percentil 95 del valor cross-sectional al horizonte. */
+  p95: number;
+  /**
+   * CVaR_5 / Expected Shortfall a la baja: media condicional de los valores
+   * estrictamente debajo de P5. Captura "qué tan profunda en promedio es la
+   * cola izquierda", no solo dónde empieza.
+   */
+  cvar5: number;
+  /**
+   * CVaR_95: media condicional de los valores arriba de P95. Útil para
+   * caracterizar upside esperado en escenarios excepcionales.
+   */
+  cvar95: number;
+  /** Número de paths usados para el cálculo. */
+  nPaths: number;
+};
+
+/**
+ * Calcula percentiles 5/95 + CVaR_5 + CVaR_95 sobre el valor patrimonial
+ * cross-sectional a un conjunto de horizontes anchor (ej. [60, 120, 240]).
+ *
+ * Diferenciador #6 sobre la industria top: VaR (el percentil) responde
+ * "dónde empieza la cola"; CVaR / Expected Shortfall responde "qué tan
+ * profunda en promedio". La industria muestra VaR al cliente final;
+ * Mercantil entrega ambos.
+ */
+export function computeTailRiskAtHorizons(
+  values: Float32Array,
+  nPaths: number,
+  horizonMonths: number,
+  anchors: ReadonlyArray<number>,
+): TailRiskAtHorizon[] {
+  const nCols = horizonMonths + 1;
+  if (values.length !== nPaths * nCols) {
+    throw new Error(
+      `computeTailRiskAtHorizons: values.length=${values.length} ≠ nPaths*(H+1)=${nPaths * nCols}`,
+    );
+  }
+  const out: TailRiskAtHorizon[] = [];
+  const col = new Float64Array(nPaths);
+  for (const anchor of anchors) {
+    if (anchor < 0 || anchor > horizonMonths) {
+      throw new Error(
+        `computeTailRiskAtHorizons: anchor ${anchor} fuera de [0, ${horizonMonths}]`,
+      );
+    }
+    for (let p = 0; p < nPaths; p++) {
+      col[p] = values[p * nCols + anchor];
+    }
+    const sorted = Array.from(col).sort((a, b) => a - b);
+    // Percentiles vía interpolación lineal (consistente con computeFanChartBands).
+    const pick = (q: number): number => {
+      const idx = q * (nPaths - 1);
+      const lo = Math.floor(idx);
+      const hi = Math.ceil(idx);
+      if (lo === hi) return sorted[lo];
+      const frac = idx - lo;
+      return sorted[lo] * (1 - frac) + sorted[hi] * frac;
+    };
+    const p5 = pick(0.05);
+    const p95 = pick(0.95);
+    // CVaR: media de valores en la cola. Convención: sorted está ordenado
+    // ascendente. Cola izquierda = primeros 5% de paths; cola derecha =
+    // últimos 5%. Usar al menos 1 path en la cola incluso para nPaths chico.
+    const tailSize = Math.max(1, Math.floor(nPaths * 0.05));
+    let sumLow = 0;
+    for (let i = 0; i < tailSize; i++) sumLow += sorted[i];
+    let sumHigh = 0;
+    for (let i = nPaths - tailSize; i < nPaths; i++) sumHigh += sorted[i];
+    const cvar5 = sumLow / tailSize;
+    const cvar95 = sumHigh / tailSize;
+    out.push({
+      monthIdx: anchor,
+      p5: Math.max(0, p5),
+      p95: Math.max(0, p95),
+      cvar5: Math.max(0, cvar5),
+      cvar95: Math.max(0, cvar95),
+      nPaths,
+    });
+  }
+  return out;
 }

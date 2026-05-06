@@ -1,0 +1,40 @@
+{
+  "pdf": {
+    "brand": {
+      "name": "Mercantil Asset and Wealth Management",
+      "shortName": "Mercantil AWM"
+    },
+    "cover": {
+      "subtitle": "Persönlicher Anlageplan — Analyse auf Basis realer historischer Szenarien",
+      "client": "Mandant",
+      "advisor": "Berater",
+      "bucket": {
+        "label": "Zielrahmen",
+        "liquidity": "Liquidität",
+        "longevity": "Langlebigkeit",
+        "legacy": "Vermächtnis"
+      },
+      "date": "Datum",
+      "version": "Version",
+      "sessionId": "Sitzungs-ID",
+      "locale": "Sprache"
+    },
+    "exec": {
+      "title": "Zusammenfassung",
+      "objective": "Hauptziel",
+      "allocation": "Empfohlene Allokation",
+      "confidenceAge": {
+        "label": "Vertrauensalter",
+        "explainer": "Ihr Plan trägt mit Zuversicht bis zu diesem Alter in ungünstigen Szenarien."
+      },
+      "actions": "Nächste Schritte",
+      "nextReview": "Nächste Überprüfung"
+    },
+    "footer": {
+      "page": "Seite",
+      "of": "von",
+      "confidential": "Vertrauliches Dokument — ausschließlich zur Nutzung durch Mandant und Berater"
+    },
+    "draftWatermark": "ENTWURF — muttersprachliche Überprüfung vor Aushändigung an den Mandanten erforderlich"
+  }
+}

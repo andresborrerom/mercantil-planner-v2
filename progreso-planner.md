@@ -2488,3 +2488,252 @@ Quedan:
 - Asesor ahora tiene 3 tipos de views: single (1 predicado), composite AND/OR (múltiples predicados ventana-agregados), synchronized (múltiples predicados mes a mes).
 - Total presets built-in: 14 (9 single + 4 composite + 1 synchronized).
 
+---
+
+## 2026-05-05 — Fase D arranca: Auth + PDF de cierre. Skeleton del PDF + state container
+
+Sesión de planeación + setup técnico del feature 2 (PDF de cierre de asesoría con state container embebido). Branch `feature/pdf-cierre`, no se tocó `main`. Trabajo autónomo de Pocho mientras se desconecta — decisiones técnicas documentadas para validación con OK explícito al volver.
+
+### Contexto y decisiones de producto (sesión interactiva con Pocho previa al setup)
+
+Pocho definió dos features grandes nuevos sobre el planner:
+
+1. **Auth multi-usuario** para colegas internos (asesores) que operan la herramienta con clientes. NO acceso de clientes finales — los clientes consumen vía PDF. Decisión: **Cloudflare Access** frente a hosting estático (free tier ≤50 usuarios), dominio beta personal `mawm-lab.com` (Pocho administra, sin permisos institucionales). Hosting decidido: GH Pages como origen + Cloudflare proxy + Access delante. No se toca CI/CD existente.
+
+2. **PDF de cierre de asesoría** con tres pilares: (a) entregable profesional al cliente final con lenguaje no-técnico y rigor estadístico, (b) **state container** — JSON embebido en metadata del PDF para que la próxima sesión rehidrate el estado completo, (c) multi-idioma ES/EN/FR/DE.
+
+Research previo: agente especializado entregó dossier de **9.200 palabras / 868 líneas / 25 fuentes** en `research/pdf-benchmark-industria.md` cubriendo CFA Institute IPS, Vanguard PAS, UBS Wealth Way, JPM Private Bank, SEC Marketing Rule, MiFID II, crítica académica de Monte Carlo gaussiano. Hallazgos clave que guían el diseño:
+
+- Block bootstrap pareado del planner detecta ~28% failure rate al 4% rule vs ~11% del MC gaussiano (Cogneau-Zakamouline 2013) — diferenciador real, no marketing.
+- Lenguaje "éxito/fracaso" sustituido por "puntos de ajuste" (Kitces) — reduce ansiedad sin perder rigor.
+- Confidence age como métrica intuitiva default; probabilidad por edad/objetivo activable opcional.
+- Asset allocation va como APÉNDICE del IPS, no en el cuerpo (lección CFA Institute: permite actualizar sin reescribir).
+- 70% del documento es boilerplate institucional, 30% cliente-específico — modularidad estándar.
+
+Decisiones de diseño confirmadas con Pocho:
+
+- **Framework UBS Wealth Way (Liquidity / Longevity / Legacy) adoptado opción A:** un bucket por estudio. Si un cliente tiene múltiples buckets, el asesor genera N estudios separados con naming `<cliente>-<bucket>` (ej. `pocho-longevity.pdf`, `pocho-liquidity.pdf`). Sin modificar el motor.
+- **Dos versiones del entregable por cliente:** completa (18-25 pp, secciones A→L del dossier sección 9) y ejecutiva (6-8 pp, subset). Mismo state JSON genera ambas.
+- **3 plantillas (una por bucket) × 2 versiones = 6 outputs** desde una base común modular.
+- Métricas primarias: **confidence age** (default) + opción de **probabilidad de éxito por edad/objetivo** activable por checklist.
+- Disclaimers desde buenas prácticas (CFA + SEC Marketing Rule + UBS + MiFID II), no boilerplate genérico — ya hay redacción modelo en español en sección 9.6 del dossier.
+- FR + DE inicialmente como **borrador** con marcador visible "requiere revisión por hablante nativo" hasta que un colega francófono/germanohablante revise.
+
+### Stack técnico instalado
+
+- `@react-pdf/renderer` v4.x — generación declarativa de PDFs client-side con React. Confirmado React 19 compatible.
+- `i18next` + `react-i18next` + `i18next-browser-languagedetector` — internacionalización standalone para el módulo PDF (la UI principal queda i18n-ready a futuro).
+- `pdf-lib` — manipulación de metadata del PDF post-render (embedding del state JSON).
+
+Bundle impact: `index-*.js` pasa de 1087 KB a 1103 KB (+16 KB) — incremento mínimo porque el módulo PDF aún no está cableado a la UI (sin imports en `App.tsx`). Cuando se cablee, se hará vía dynamic import para no inflar el initial chunk.
+
+Vulnerabilidad heredada: `xlsx` reporta high severity (Prototype Pollution + ReDoS) sin fix upstream. Pre-existente — no introducida en esta sesión. Anotada para evaluar reemplazo en sesión futura.
+
+### Arquitectura del módulo PDF (`src/pdf/`)
+
+```
+src/pdf/
+  index.ts                     exports públicos
+  MercantilPdf.tsx             <Document> root con metadata
+  sections/
+    A_Cover.tsx                portada (implementada)
+    B_ExecutiveSummary.tsx     resumen ejecutivo (skeleton implementado)
+    C..L_*.tsx                 12 secciones totales — pendientes
+  components/
+    PdfFooter.tsx              footer fijo con paginación + sessionId
+  state/
+    types.ts                   PdfStateContainer + WealthBucket + PdfLocale
+    metadata.ts                embedStateInPdf / extractStateFromPdf
+    metadata.test.ts           6 tests round-trip (passing)
+  theme/
+    colors.ts                  paleta neutra + acento (placeholder corporativo)
+    typography.ts              par tipográfica Times-Roman + Helvetica (built-in)
+    spacing.ts                 escala de espaciado consistente
+
+src/i18n/
+  index.ts                     init react-i18next con 4 locales
+  locales/
+    es.json / en.json          calidad cliente final
+    fr.json / de.json          BORRADOR — marca visible en draftWatermark
+```
+
+### State container — validación crítica (round-trip embed/extract)
+
+La pieza técnicamente más arriesgada del feature: ¿se preserva el JSON exacto cuando se embebe y luego se extrae del PDF, sobreviviendo a saneadores y soportando unicode (clientes con nombres acentuados)?
+
+**Diseño final:** custom key `MawmState` en el Info Dictionary del PDF, codificada como `PDFHexString` con UTF-16BE BOM (no `PDFString.of` — esa solo soporta ASCII y se rompe con acentos, como confirmó el primer fallo del test).
+
+**Tests del round-trip** (`src/pdf/state/metadata.test.ts`, 6/6 passing):
+
+1. Embebe el state y lo extrae intacto (deep equality).
+2. Devuelve `null` cuando el PDF no tiene state.
+3. Preserva floats con decimales (ej. `initialCapital: 1_500_000.5`).
+4. Preserva caracteres acentuados y unicode arbitrario (`Núñez Müller — François 漢字`). **Este test atrapó el bug inicial de PDFString**.
+5. Soporta los 4 locales × 3 buckets (12 combinaciones).
+6. `schemaVersion = 1` estable como ancla para forward-compat.
+
+**Riesgo conocido residual:** algunos saneadores web pueden eliminar Info Dictionary entries no estándar. Mitigación si ocurre: migrar a embedded files (PDF attachments) — más estándar, soportado por todos los visores. Plan B documentado en `research/decisiones-tecnicas-pdf.md` §3.
+
+**Decisión sobre API privada de pdf-lib:** `getInfoDict()` está marcado private aunque es estable. Aislado en helper `getInfoDictUnsafe(doc)` con cast explícito y comentario justificando — único punto de la base que toca API privada.
+
+### Verificación
+
+- `npm test` → **291/291** (285 previos + 6 nuevos del state container).
+- `npm run build` → limpio, ~1m 39s, bundle index +16 KB.
+- `npx tsc -b` → sin errores TS.
+
+Sanity scripts (`npm run sanity`, `npm run sanity:views`) NO corridos esta sesión — no se tocó motor de bootstrap, flows, métricas ni views. Quedan como verificación obligatoria del checklist §14 cuando se merguee a `main`.
+
+### Lo que NO se tocó / decisiones explícitas
+
+- **No se modificó el store de Zustand** ni nada del runtime del planner. El skeleton del PDF es un módulo aislado importable que aún no está cableado a la UI.
+- **No se redactó copy literal** de las 12 secciones — solo skeleton de A (portada) y B (resumen ejecutivo) con strings i18n placeholder.
+- **No se decidió paleta de colores final** ni tipografía corporativa Mercantil AWM — placeholders profesionales en `theme/`. Pocho confirmará.
+- **No se decidió naming del botón en UI** (sección 7 de decisiones-tecnicas-pdf.md). Propuesta: "Generar plan personal de inversión".
+- **No se commiteó a `main`** — todo en branch `feature/pdf-cierre`.
+
+### Pendientes para próximas sesiones
+
+Validación con OK explícito de Pocho (al volver):
+
+- [ ] Confirmar stack: `@react-pdf/renderer` + `react-i18next` + `pdf-lib`.
+- [ ] Confirmar approach state container (Info Dict + PDFHexString + plan B file attachment).
+- [ ] Confirmar naming convention `<cliente>-<bucket>[-ejec].pdf`.
+- [ ] Confirmar estructura carpetas `src/pdf/` y `src/i18n/`.
+- [ ] Confirmar naming del botón en UI ("Generar plan personal de inversión" propuesto).
+
+Implementación pendiente:
+
+- Cableado del módulo PDF a la UI: botón + modal de configuración en `ExportBar` con form (cliente, bucket, versión, idioma, secciones modulares activables, carta personalizada del asesor).
+- Importación de PDF (drag & drop) → `extractStateFromPdf` → rehidratación del store con confirmación visual.
+- 10 secciones restantes (C → L) del PDF, con datos reales del store de simulación.
+- Charts en PDF (fan chart de proyecciones, allocation pie, regímenes históricos) — vía SVG nativo de react-pdf o exportando PNGs de los charts del planner.
+- Disclaimer modelo en 4 idiomas (ES listo en dossier 9.6, EN/FR/DE pendientes — FR/DE como borrador).
+- Logo Mercantil AWM en alta resolución (PNG/SVG) — pedir a Pocho.
+- Paleta y tipografía corporativa final.
+
+Feature 1 (Auth):
+
+- Bloqueado en compra del dominio `mawm-lab.com` por Pocho. Una vez comprado: vite.config base URL → DNS Cloudflare proxy → Access policy con lista de emails autorizados.
+
+### Estado al cierre
+
+- **291/291 tests · build limpio · branch `feature/pdf-cierre` lista para validación.**
+- State container demostrado robusto: round-trip preserva floats, unicode, los 4 locales y 3 buckets.
+- Skeleton renderizable: portada (A) + resumen ejecutivo (B) con i18n funcionando, placeholders documentados para datos reales.
+- Documentación de decisiones técnicas en `research/decisiones-tecnicas-pdf.md` lista para validación con OK explícito.
+
+---
+
+## 2026-05-05 PM — Fase D.2: cableado UI del PDF + adenda dossier + CVaR
+
+Sesión interactiva con Pocho que avanzó tres frentes en paralelo: (1) feedback de Pocho sobre el dossier integrado como adenda formal, (2) cableado completo del módulo PDF a la UI del planner con flujo end-to-end real, (3) extensión del motor con métricas de cola (CVaR + P5/P95) que destraban la sección E del PDF.
+
+### Decisiones de producto consolidadas (Pocho 2026-05-05 PM)
+
+- **OK explícito a las 7 decisiones técnicas** del PDF (`research/decisiones-tecnicas-pdf.md`). Stack confirmado, naming convention confirmada, naming del botón confirmado (**"Generar plan personal de inversión"**).
+- **Dominio beta confirmado: `mawm-lab.com`** (con fallbacks `mbsadvisory-beta.com`, `mawm-beta.com`, `mawmlab.com` si .com no disponible). Pocho lo compra él mismo bajo cuenta personal de Cloudflare. Compra inicia mientras presenta los avances actuales — recibirá guía paso a paso por separado.
+- **Wealth Way opción A confirmada:** un bucket por estudio. Si un cliente tiene múltiples buckets, el asesor genera N estudios separados con naming `<cliente>-<bucket>` (ej. `pocho-longevity.pdf`, `pocho-liquidity.pdf`).
+- **Tres puntos de feedback Pocho** sobre el dossier integrados como adenda formal (sección 10):
+  - **(a) Métricas de cola:** CVaR / Expected Shortfall por horizonte + percentiles 5/95 + meses negativos esperados. Tríada para sección E del PDF.
+  - **(b) Modelo de renta fija propio:** descripción técnica y cliente-amigable. NO se maneja como IP cerrada pero sí se menciona como rigurosidad diferenciada (diferenciador #6 sobre la industria).
+  - **(c) Inflación nominal/real en cada corrida:** AL BACKLOG, no MVP. Fase E o posterior.
+
+### Bloque 1 — Adenda al dossier (sección 10, ~+330 líneas)
+
+`research/pdf-benchmark-industria.md` ahora pasa de 868 a 1198 líneas. Sección 10 agrega:
+
+- **10.1 Métricas de cola** — definición operativa de CVaR/ES, justificación sobre VaR, conexión con Basel III, lenguaje cliente con "puntos de ajuste" Kitces, plan de implementación motor + PDF.
+- **10.2 Modelo de renta fija propio** — descripción técnica del approach (respuesta histórica de tasas re-proyectada al nivel actual, preserva carry/duración/correlaciones), versión cliente no-técnica para sección K del PDF, diferenciador #6 sobre Vanguard VCMM / Schwab CMA / Morgan Stanley GIC. Crítica explícita al approach naive de bootstrap de retornos históricos de ETFs de RF.
+- **10.3 Inflación al backlog** — registrado el alcance, la idea de Pocho para modelar inflación condicionada al régimen de tasas (diferencial histórico vs spread actual), y el plan de Fase E.
+
+### Bloque 2 — Cableado UI del PDF (cero a end-to-end real)
+
+**Flujo completo implementado:**
+
+1. **Botón "Generar plan personal de inversión"** en `src/components/ExportBar.tsx` (estilo `mp-btn-primary`, primer botón del cluster — entrega el visual de "esto es lo principal").
+2. **Modal `src/components/PdfExportModal.tsx`** con form completo:
+   - Nombre cliente + nombre asesor (text inputs, validados required).
+   - Bucket Wealth Way (3 cards Liquidity/Longevity/Legacy con helper text).
+   - Versión (Completa 18-25pp / Ejecutiva 6-8pp).
+   - Idioma (4 chips ES/EN/FR/DE; FR/DE marcados con ⚠ y banner de borrador).
+   - Checklist secciones modulares F/G/K (stress tests / sensibilidades / metodología).
+   - Carta personalizada del asesor (textarea, 600 chars max).
+   - Botón Cancelar / Generar PDF con state busy.
+   - Backdrop click + ESC cierran.
+3. **Serializador `src/pdf/state/serialize.ts`** que combina snapshot del Zustand store con inputs del form y produce un `PdfStateContainer` válido. Incluye `clientSlug()`, `pdfFileName()`, `generateSessionId()` con format `mawm-<slug>-<bucket>-YYYYMMDD-HHMM-<random4>`. **+12 tests** del serializador.
+4. **Helper de descarga `src/pdf/download.ts`** con `generateAndDownloadPdf(state, opts)`: cambia idioma → renderiza → embebe metadata → trigger download con naming convention. Aislado en su propio módulo para que el dynamic import lo separe en su chunk lazy.
+5. **Refactor `MercantilPdf.tsx`:** de FunctionComponent a factory `createMercantilPdfDocument(state, placeholders?)`. Razón: `pdf()` exige `ReactElement<DocumentProps>` directo; un wrapper componente lo rompía a nivel de tipos. La factory retorna directamente el `<Document>`. Documentado en comentario al tope del archivo.
+
+**Resultado del cableado en el bundle de producción:**
+
+```
+dist/assets/index-*.js          1,103.87 KB  ← initial, IGUAL al previo
+dist/assets/download-*.js       1,867.40 KB  ← chunk lazy con react-pdf+pdf-lib
+```
+
+**Lazy-load funciona perfecto.** El bundle inicial NO crece. El chunk pesado solo se baja cuando el usuario hace click en "Generar PDF" la primera vez.
+
+### Bloque 3 — Extensión del motor con métricas de cola (Fase D.2)
+
+`src/domain/metrics.ts`:
+
+- **`FanChartBands` extendido** con `p5: Float32Array` y `p95: Float32Array`. `computeFanChartBands` los calcula además de los 5 percentiles previos (P10-P90).
+- **Nueva función `computeTailRiskAtHorizons(values, nPaths, horizonMonths, anchors)`** retorna array de `TailRiskAtHorizon[]` con `monthIdx`, `p5`, `p95`, `cvar5`, `cvar95`, `nPaths`. Anchors típicos: `[60, 120, 240]` para 5/10/20 años.
+- **Convención CVaR:** ordenar paths cross-sectional al horizonte, CVaR_5 = media de los `floor(nPaths * 0.05)` paths más bajos; CVaR_95 = media de los `ceil(nPaths * 0.05)` más altos. Mínimo 1 path en la cola incluso para `nPaths` chico.
+- **Floor a 0** consistente con `computeFanChartBands` (red de seguridad — el motor de flujos garantiza V[t] ≥ 0).
+
+**+6 tests metrics:**
+
+1. `p5` y `p95` definidos y respetan ordenamiento monótono `p5 ≤ p10 ≤ … ≤ p90 ≤ p95` por mes.
+2. `CVaR_5 ≤ P5 ≤ P95 ≤ CVaR_95` (invariante de cola).
+3. Anchors se respetan exactamente.
+4. Anchor fuera de rango lanza error.
+5. Distribución bimodal: CVaR captura magnitud media de la cola, no solo el cutoff (verificación con cola concentrada en valor crash determinístico).
+6. Validación de `values.length`.
+
+### Verificación
+
+- `npm test` → **309/309** (291 previos + 6 metrics + 12 serializer).
+- `npm run build` → limpio en ~1m 02s. Initial chunk SIN crecer (1103 KB), chunk lazy `download-*.js` 1867 KB con react-pdf+pdf-lib.
+- `npx tsc -b` → sin errores TS.
+- `npm run pdf:samples` + `npm run pdf:samples:verify` → 4 PDFs regenerados, round-trip end-to-end OK.
+
+### Helper bonus de la sesión
+
+A petición de Pocho durante la sesión, generado un visor HTML autocontenido para revisar todos los .md y PDFs del proyecto con sidebar fijo, búsqueda y tema light/dark:
+
+- **Script:** `scripts/build-doc-viewer.mjs`.
+- **Output:** `research/index.html` (~430 KB autocontenido, `marked` embebido).
+- **Comando:** `npm run docs:viewer`.
+- **Indexa:** 4 .md del planner root + 2 .md research + 4 PDFs samples + 4 .md del estudio benchmark = 14 documentos.
+
+### Pendientes para próximas sesiones
+
+Bloqueante por compra del dominio (Pocho):
+
+- Feature 1 (Auth Cloudflare Access) — vite.config base URL, DNS Cloudflare proxy, política Access con lista de emails autorizados, test acceso autorizado/no autorizado.
+
+Implementación PDF (independiente del dominio):
+
+- Importación de PDF (drag & drop) → `extractStateFromPdf` → rehidratación del store con confirmación visual.
+- Sección E del PDF cableada a `computeTailRiskAtHorizons` y `computeFanChartBands` (P5/P95 disponibles).
+- 9 secciones restantes (C, D, F, G, H, I, J, K, L) con datos reales del store.
+- Charts en PDF (fan chart de proyecciones con bandas P5-P95, allocation pie, regímenes históricos) — vía SVG nativo de react-pdf o exportando PNGs de los charts del planner.
+- Disclaimer modelo en EN/FR/DE (ES ya redactado en dossier 9.6).
+- Logo Mercantil AWM en alta resolución — pedir a Pocho.
+- Paleta y tipografía corporativa final (placeholders profesionales hoy).
+
+Backlog Fase E:
+
+- Inflación nominal/real en cada corrida (idea Pocho con diferencial histórico vs spread actual como proxy).
+
+### Estado al cierre
+
+- **309/309 tests · build limpio · branch `feature/pdf-cierre` con cableado UI funcional end-to-end.**
+- Asesor ahora puede: abrir el modal "Generar plan personal de inversión" → llenar form → recibir un PDF descargado con naming convention y state JSON embebido en metadata listo para rehidratación.
+- Motor del planner extendido con CVaR / P5/P95 — sección E del PDF está destrabada para implementación de contenido cuando aterricemos en cada sección.
+- Adenda al dossier integra los 3 puntos de feedback de Pocho con calidad y profundidad equivalentes al dossier original.
+- Visor HTML local entregado para que Pocho navegue todo el material del proyecto en un sidebar único.
+
+

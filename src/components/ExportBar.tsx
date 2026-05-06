@@ -30,6 +30,7 @@ import type {
   PlanSpec,
   PortfolioSpec,
 } from '../domain/types';
+import PdfExportModal from './PdfExportModal';
 
 type XLSXModule = typeof XLSXNamespace;
 
@@ -49,6 +50,7 @@ export default function ExportBar() {
   const [pasteError, setPasteError] = useState<string | null>(null);
   const [copyNotice, setCopyNotice] = useState<string | null>(null);
   const [isExporting, setIsExporting] = useState(false);
+  const [pdfModalOpen, setPdfModalOpen] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const hasSim = !!(state.simA && state.simB && state.rawReturnsA && state.rawReturnsB);
@@ -116,6 +118,13 @@ export default function ExportBar() {
         <h2 className="text-base">Exportar y compartir</h2>
         <div className="flex gap-2 flex-wrap">
           <button
+            onClick={() => setPdfModalOpen(true)}
+            className="mp-btn-primary text-xs"
+            title="Generar entregable de cierre — PDF profesional con estado embebido"
+          >
+            📄 Generar plan personal de inversión
+          </button>
+          <button
             onClick={handleExportExcel}
             disabled={!hasSim || isExporting}
             className="mp-btn-outline text-xs disabled:opacity-50"
@@ -130,6 +139,7 @@ export default function ExportBar() {
           )}
         </div>
       </div>
+      <PdfExportModal open={pdfModalOpen} onClose={() => setPdfModalOpen(false)} />
 
       <div className="mt-4">
         <label className="block text-xs font-semibold uppercase tracking-wider text-mercantil-slate dark:text-mercantil-dark-slate">

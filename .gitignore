@@ -12,3 +12,6 @@ test-results/
 .env.*
 .claude/
 
+# Outputs regenerables (regenerar con `npm run docs:viewer` y `npm run pdf:samples`)
+research/index.html
+research/samples/

@@ -1,0 +1,40 @@
+{
+  "pdf": {
+    "brand": {
+      "name": "Mercantil Asset and Wealth Management",
+      "shortName": "Mercantil AWM"
+    },
+    "cover": {
+      "subtitle": "Plan d'investissement personnel — analyse fondée sur des scénarios historiques réels",
+      "client": "Client",
+      "advisor": "Conseiller",
+      "bucket": {
+        "label": "Cadre des objectifs",
+        "liquidity": "Liquidité",
+        "longevity": "Longévité",
+        "legacy": "Patrimoine"
+      },
+      "date": "Date",
+      "version": "Version",
+      "sessionId": "Identifiant de session",
+      "locale": "Langue"
+    },
+    "exec": {
+      "title": "Résumé exécutif",
+      "objective": "Objectif principal",
+      "allocation": "Allocation recommandée",
+      "confidenceAge": {
+        "label": "Âge de confiance",
+        "explainer": "Votre plan se maintient avec confiance jusqu'à cet âge dans des scénarios défavorables."
+      },
+      "actions": "Prochaines étapes",
+      "nextReview": "Prochaine révision"
+    },
+    "footer": {
+      "page": "Page",
+      "of": "sur",
+      "confidential": "Document confidentiel — à l'usage exclusif du client et de son conseiller"
+    },
+    "draftWatermark": "BROUILLON — révision par locuteur natif requise avant remise au client"
+  }
+}

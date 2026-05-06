@@ -1,0 +1,40 @@
+{
+  "pdf": {
+    "brand": {
+      "name": "Mercantil Asset and Wealth Management",
+      "shortName": "Mercantil AWM"
+    },
+    "cover": {
+      "subtitle": "Personal Investment Plan — Analysis Based on Real Historical Scenarios",
+      "client": "Client",
+      "advisor": "Advisor",
+      "bucket": {
+        "label": "Goals Framework",
+        "liquidity": "Liquidity",
+        "longevity": "Longevity",
+        "legacy": "Legacy"
+      },
+      "date": "Date",
+      "version": "Version",
+      "sessionId": "Session ID",
+      "locale": "Language"
+    },
+    "exec": {
+      "title": "Executive Summary",
+      "objective": "Primary Objective",
+      "allocation": "Recommended Allocation",
+      "confidenceAge": {
+        "label": "Confidence Age",
+        "explainer": "Your plan is sustainable with confidence up to this age in adverse scenarios."
+      },
+      "actions": "Next Steps",
+      "nextReview": "Next Review"
+    },
+    "footer": {
+      "page": "Page",
+      "of": "of",
+      "confidential": "Confidential document — for the exclusive use of the client and their advisor"
+    },
+    "draftWatermark": ""
+  }
+}

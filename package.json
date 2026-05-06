@@ -19,11 +19,19 @@
     "preview:instructivo": "node scripts/build-instructivo-preview.mjs",
     "test:e2e": "playwright test",
     "test:e2e:ui": "playwright test --ui",
-    "test:e2e:headed": "playwright test --headed"
+    "test:e2e:headed": "playwright test --headed",
+    "pdf:samples": "tsx --tsconfig tsconfig.app.json scripts/generate-pdf-samples.ts",
+    "pdf:samples:verify": "tsx --tsconfig tsconfig.app.json scripts/verify-pdf-samples.ts",
+    "docs:viewer": "node scripts/build-doc-viewer.mjs"
   },
   "dependencies": {
+    "@react-pdf/renderer": "^4.5.1",
+    "i18next": "^26.0.8",
+    "i18next-browser-languagedetector": "^8.2.1",
+    "pdf-lib": "^1.17.1",
     "react": "^19.2.4",
     "react-dom": "^19.2.4",
+    "react-i18next": "^17.0.6",
     "recharts": "^3.8.1",
     "xlsx": "^0.18.5",
     "zustand": "^5.0.12"
