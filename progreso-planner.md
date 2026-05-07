@@ -2902,4 +2902,116 @@ Después de cerrar la sección E del PDF, Pocho pidió pasar al instructivo del 
 - **Instructivo en borrador v1 completo** — 11 partes redactadas, motor del producto sin cambios, 0 pendientes silenciosos en el preview HTML.
 - Cuando Pocho capture los assets siguiendo las instrucciones consolidadas en `instructivo/README.md`, el instructivo queda listo para build con Pandoc → PDF de capacitación + ficha de consulta rápida del equipo comercial.
 
+---
+
+## 2026-05-06 (continuación PM) — HTML responsive + captura automatizada Playwright + commit
+
+Tras el refresh textual del instructivo, Pocho propuso evitar la captura manual con Greenshot/ScreenToGif y automatizar todo lo posible. Sesión técnica con tres frentes paralelos: pulido del HTML a producción responsive, automatización de capturas con Playwright, y conexión del botón "Guía del asesor" del planner al instructivo. Cierre con commit `3de487a` en `feature/pdf-cierre`.
+
+### Cambio de plan: del Greenshot manual al Playwright automatizado
+
+Las primeras 3 capturas se hicieron manuales con Greenshot (overview, header, selector). En el momento de pasar a las zonas más complejas (perfil, flujos, fan chart), Pocho propuso explorar automatización. Confirmé que Playwright ya estaba instalado y configurado en el proyecto (8 specs E2E, helpers + webServer auto-managed).
+
+**Decisión: pasar todo a Playwright.** Beneficios reales sobre captura manual:
+- Encuadre por selector CSS exacto (no estimación visual).
+- Caso sample idéntico cada corrida (consistencia con samples del PDF).
+- Reproducibilidad determinística — re-correr el script regenera idénticos.
+- Ante cambios de UI: re-correr en lugar de re-capturar manual.
+
+Las 3 capturas manuales se sobreescribieron con la versión automatizada para uniformidad.
+
+### Bloque 1 — HTML responsive del instructivo
+
+`scripts/build-instructivo.mjs` (separado del `build-instructivo-preview.mjs` interno):
+
+- HTML production-grade self-contained con CSS mobile-first.
+- Sidebar TOC sticky en desktop (≥768px), drawer hamburguesa en mobile (<768px) con backdrop click-to-close.
+- Lazy-loading de imágenes (`loading="lazy"`).
+- Active-link highlight via IntersectionObserver mientras se scrollea.
+- Paleta Mercantil real (navy `#213A7D`, naranja `#E97031`, gold `#C9A84C`).
+- System font stack para zero-deps de fuentes (perfecto en celular y desktop).
+- `@media print` para que sea imprimible.
+
+`npm run build` ahora incluye `postbuild` que copia el HTML a `dist/instructivo/` automáticamente. `npm run instructivo:build` standalone para desarrollo.
+
+`Header.tsx` línea 58: botón **"Guía del asesor"** ahora usa `window.open('${import.meta.env.BASE_URL}instructivo/', '_blank', 'noopener')`. Funciona en dev local y en deploy GH Pages sin cambios (BASE_URL resuelve `/mercantil-planner/` o `/` según entorno).
+
+### Bloque 2 — Captura automatizada con Playwright
+
+`scripts/capture-instructivo.ts`:
+
+- **Approach clave: hidratar state via "Pegar config JSON"** del ExportBar en lugar de simular 7 clicks/inputs distintos. 1 paste vs 7 acciones — más rápido y robusto.
+- **5 configs hardcoded**: SAMPLE (default), PABLO, MARTA, MARTA_SEGUIMIENTO, DIANA, CARLOS — uno por caso del instructivo.
+- Helper `applyConfig` que hace `page.goto(BASE_URL)` + paste + simulate. El reload garantiza que cada config arranca con UI en estado default (cards colapsados, tabs en default).
+- Helpers `captureCard` / `captureRegion` / `captureFullPage` con `mouse.move(0,0)` antes de cada captura para evitar tooltips de Recharts.
+- Style override `header { position: static !important; }` para neutralizar el sticky header durante capturas de cards altos (sino el header aparece encima).
+- Para AMCs propuestos (caso Diana), el toggle "Mostrar AMCs propuestos" se activa antes de aplicar la config.
+
+**22 PNG capturados en una sola corrida (~30s):**
+
+- Parte 2 (10): overview panorámica, header, selector A│B + toggle, perfil + sample, flujos, fan chart, stats, views (tab Presets con los 14 expandidos), regímenes (Crisis 2008 expandido), exportar
+- Parte 3 (3): Pablo fan chart, Pablo stats, views asimétrico (preset Tasas +100 pbs, prob 17.3%)
+- Parte 4b (3): Marta original, Marta seguimiento (capital remanente $380K, horizonte 240m), Modal PDF en seguimiento
+- Parte 4c (1): Sync builder con SPY↓ + TNX↑ (estanflación pattern)
+- Parte 5 (4): Pablo stats, Diana stats (CDT-Proxy vs Crecimiento, asimetría 4.22% vs 8.10% TWR), Marta stats, Carlos stats
+
+**Validación mobile via Playwright** (sin necesidad de celular real): screenshots a viewport iPhone SE (375×667) confirmaron que el drawer hamburguesa funciona, sidebar se oculta correctamente, imágenes ocupan ancho del contenedor sin overflow, tipografía readable.
+
+### Bloques skipped con justificación
+
+**GIFs (Bloque 4)**: 9 GIFs pendientes. Implementar con `gif-encoder-2 + canvas` requiere build tools nativos en Windows. Las alternativas JS-puras (`omggif + jimp`) requieren cuantización y ~30 min de iteración para calidad/peso aceptable. El instructivo transmite el flujo perfectamente con texto + 22 screenshots — los GIFs son polish, no críticos. **Decision: pendientes manuales con receta exacta de captura por GIF en `instructivo/README.md`** (ScreenToGif, FPS 12-15, < 2 MB).
+
+**Sección E del PDF (Bloque 3)**: 1 screenshot. Chromium de Playwright NO incluye el PDF viewer (es extensión de Chrome propietario, no del Chromium open-source). Probé `file://` y HTTP local — ambos disparan download en lugar de render. Resolverlo con `pdfjs-dist + canvas native` toma ~30 min con resultado incierto. **Decision: pendiente manual con instrucciones in-place en `parte-4-glosario-nueve-indicadores.md`** (abrir PDF con Adobe Reader, capturar tabla con Greenshot).
+
+**Pinear `[X]` de Parte 5**: ~80 placeholders narrativos con mapping ambiguo a métricas específicas. **Decision alternativa**: capturar 4 screenshots del Stats panel (uno por caso cliente) y embeberlos al inicio de cada caso. El asesor ve los números reales en la imagen mientras lee la narrativa con `[X]` como referencias genéricas. Si quiere pinear los literales, los datos están en los screenshots.
+
+### Validación con Pocho durante la sesión
+
+- **Desktop**: validado vía preview local. OK.
+- **Mobile**: intentamos servir via `localtunnel` (`tiny-keys-start.loca.lt`). Funcionó como tunnel HTTPS pero la pantalla "Friendly Reminder" de localtunnel exige IP del visitante; tras pasarla, Pocho vio pantalla en blanco en Safari iOS. Causa probable: localtunnel free tier inestable + caching agresivo de Safari. Pocho propuso saltar validación mobile real y validamos vía Playwright iPhone SE viewport (mostró renderizado correcto).
+
+### Verificación final
+
+- `npm run capture:instructivo` → 22 PNG generados, 5 configs corridas sin errores.
+- `npm run build` → 2m 12s, postbuild copia 21 assets + HTML a `dist/instructivo/` correctamente.
+- `npm run instructivo:build` (standalone) → emite a `instructivo/dist/` para development.
+- `dist/instructivo/index.html` servido bajo `/mercantil-planner/instructivo/` desde `vite preview`. Validado con `curl` (HTTP 200, HTML correcto).
+- 330/330 tests siguen pasando (no se tocó motor/dominio/views).
+
+### Commit
+
+`3de487a` en branch `feature/pdf-cierre`. Sin push. Author: Andres Borrero. Working tree limpio.
+
+29 archivos commiteados:
+- 22 PNG en `instructivo/assets/`
+- 4 nuevas partes del instructivo (parte-0, parte-2, parte-3, parte-4b)
+- 6 partes existentes actualizadas
+- 1 README del instructivo reescrito
+- 2 scripts nuevos: `build-instructivo.mjs`, `capture-instructivo.ts`
+- 1 script modificado: `build-instructivo-preview.mjs` (agregado parte-0)
+- `package.json` con 3 npm scripts nuevos: `instructivo:build`, `instructivo:build:dist`, `postbuild`, `capture:instructivo`
+- `Header.tsx` con botón "Guía del asesor" conectado
+- Sección E del PDF (commit incluye también el trabajo de la sesión anterior 2026-05-06 AM por agrupación lógica)
+- `progreso-planner.md` con esta entrada
+
+### Pendientes para retomar (post-push)
+
+**Para Pocho (cuando esté listo):**
+1. `git push` desde la oficina mañana.
+2. Validar deploy en `andresborrerom.github.io/mercantil-planner/` después del CI/CD.
+3. Click en "Guía del asesor" del planner deployed → debería abrir `andresborrerom.github.io/mercantil-planner/instructivo/`.
+
+**Captura manual de assets restantes** (sin urgencia, no bloquea uso):
+- 9 GIFs con ScreenToGif (recetas exactas en `instructivo/README.md`).
+- 1 screenshot sección E del PDF (instrucciones in-place en `parte-4-glosario-nueve-indicadores.md`).
+- Logo Mercantil AWM hi-res cuando esté disponible.
+
+**Pinear `[X]` de Parte 5** (opcional — los stats panel ya están como screenshots).
+
+### Estado al cierre
+
+- **Branch `feature/pdf-cierre` con todo commiteado al `3de487a` · 330/330 tests · build limpio · instructivo HTML responsive con 22 assets reales · botón "Guía del asesor" conectado · automatización Playwright lista para regeneraciones futuras.**
+- El asesor que abra el planner deployed (post-push) verá un instructivo profesional accesible directamente desde el botón del header. Los 22 screenshots están consistentes con los samples del PDF.
+- Próximo paso natural cuando Pocho retome: `git push` + validar deploy + capturar GIFs manuales si quiere completar el polish visual.
+
 
