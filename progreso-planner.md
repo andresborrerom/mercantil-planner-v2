@@ -3014,4 +3014,132 @@ Las 3 capturas manuales se sobreescribieron con la versión automatizada para un
 - El asesor que abra el planner deployed (post-push) verá un instructivo profesional accesible directamente desde el botón del header. Los 22 screenshots están consistentes con los samples del PDF.
 - Próximo paso natural cuando Pocho retome: `git push` + validar deploy + capturar GIFs manuales si quiere completar el polish visual.
 
+---
+
+## 2026-05-07 — Push a `main` × 3 + 8 GIFs animados + drag-and-drop PDF + sección C del PDF
+
+Sesión de cierre técnico antes de la presentación de Pocho mañana 2026-05-08. **Tres deploys del día a `main` vía CI/CD GitHub Pages**, sin tocar la spec.
+
+### Commits del día
+
+- `64d7855` — 8 GIFs animados integrados al instructivo + `presentacion-2026-05-08.md` (guion 30 min) + script reusable `scripts/capture-gifs.ts`.
+- `65f82d7` — Drag-and-drop PDF rehidratación: nuevo `<PdfDropZone>` componente + `applyPdfStateToStore` testeado + 7 tests nuevos (337 total).
+- `daa46ef` — Sección C del PDF (Configuración del plan) en 4 idiomas. PDF pasa de 3 a 4 páginas.
+
+Antes del cierre del día, también se hicieron dos pushes previos para llevar `main` al día con `feature/pdf-cierre` (commits `1ada008` → `ed27343` → `3de487a`) que cerraron el commit pendiente del 2026-05-06 PM.
+
+### 1. Pipeline GIFs animados (commit `64d7855`)
+
+Resolvió el pendiente de "9 GIFs manuales" del cierre 2026-05-06. Pipeline elegido: **Playwright `recordVideo` (.webm) → ffmpeg paleta 2-pass (.gif)**. NO `gif-encoder-2 + canvas` que requería build tools nativos en Windows.
+
+Implementación:
+- `scripts/capture-gifs.ts` reusable — patrón análogo a `capture-instructivo.ts` (mismo `applyConfig` via "Pegar config JSON").
+- ffmpeg instalado vía `winget install Gyan.FFmpeg.Essentials`.
+- Tres mejoras post-feedback Pocho:
+  - **Trim del setup**: `recordStartMs` se mide después de `applyConfig`, ffmpeg corta los primeros N segundos con `-ss` antes de generar paleta y aplicarla. Los GIFs muestran solo la acción, no la simulación previa con barra naranja.
+  - **Pausas más largas**: 1400ms entre clicks (vs 900ms inicial), 1500ms head, 1200ms tail.
+  - **Helper `hideExportBarSecondaries(page)`**: esconde botones Excel + Copiar config + textarea Pegar JSON del card "Exportar y compartir" antes de grabar, para que solo se vea el botón naranja "Generar plan personal de inversión" durante los GIFs. Excepción: GIF de rehidratación (parte-4b-01) usa flag `keepExportBarSecondaries: true` porque el textarea ES la acción del GIF.
+- Optimización ffmpeg: scale 900px (vs 1100 inicial), fps 10 (vs 12), bayer dither — bajó peso ~63% manteniendo legibilidad.
+
+8 GIFs entregados (todos `instructivo/assets/`):
+| GIF | MB | Mensaje |
+|---|---|---|
+| `parte-2-03-toggle-amc-destructivo` | 0.38 | Toggle off → autofallback → toggle on no restaura. Re-grabado a 1.5x post Pocho. |
+| `parte-2-09-sample-path` | 1.26 | 4 clicks, KPIs estables, path varía. |
+| `parte-2-10-toggle-overlay` | 2.10 | View asimétrico, alternar Toggle/Overlay × 3. |
+| `parte-2-11-estanflacion-sincronizada` | 2.29 | Preset Sincronizado, prob ~1-3%, nMatched, condicionales. |
+| `parte-2-14-modal-pdf` | 2.45 | Botón disabled → Simular → enabled → modal recorrido → Cancelar. |
+| `parte-3-01-pablo-config-cero` | 1.23 | Configurar Pablo de cero (preset + edits). |
+| `parte-3-13-pdf-flow` | 2.58 | PDF end-to-end: botón → modal → form → Generar PDF → descarga. |
+| `parte-4b-01-rehidratar` | 2.50 | Rehidratación manual: pegar JSON en textarea → Aplicar → state restaurado. |
+
+Total: 14.79 MB.
+
+GIF #9 (`parte-5-cierre-pablo`) **skipped** porque duplica `parte-3-13-pdf-flow` (mismo flujo end-to-end). Parte 5 del instructivo reusa `parte-3-13-pdf-flow.gif` con nota explicativa.
+
+Pendiente futuro (no para hoy): **GIF del drag-and-drop** (requiere generar PDF en script + simular `DataTransfer` drop event en Playwright, ~1h).
+
+### 2. Drag-and-drop PDF rehidratación (commit `65f82d7`)
+
+Cerró parcialmente el frente "Importación drag-and-drop" pendiente desde el cierre 2026-05-05. **La infraestructura ya estaba**: `extractStateFromPdf` en `src/pdf/state/metadata.ts` ya implementaba lectura de metadata XMP UTF-16BE con tests. Solo faltaba el handler frontend.
+
+Implementación (`src/components/PdfDropZone.tsx` + tests):
+- Componente montado en App root (`src/App.tsx:24`). Sin visual default — solo overlay durante drag-over y toasts.
+- Event listeners globales en `window`: `dragenter`/`dragleave`/`dragover`/`drop`. Filter por `dataTransfer.types.includes('Files')` para no interferir con drags internos.
+- Counter `dragCounterRef` para manejar dragenter/leave anidados (HTML5 drag fires leave al pasar a hijos).
+- Validación: archivo PDF (mime type `application/pdf` o extensión `.pdf`).
+- Llama `extractStateFromPdf(uint8Array)` — si retorna null, toast error "PDF sin metadata Mercantil"; si retorna state, llama `applyPdfStateToStore(state)`.
+- UI: overlay azul `bg-mercantil-navy/85` con caja blanca centrada + texto "Soltá el PDF para rehidratar la sesión". Toast verde `bg-emerald-50` con cliente+bucket+fecha. Toast rojo `bg-rose-50` para errores. Auto-dismiss 6s.
+
+Helper exportable `applyPdfStateToStore(state: PdfStateContainer)`:
+- Detecta si A o B usan AMCs propuestos (`AMC_TIER[id] === 'proposed'`) → activa `setShowProposedAmcs(true)` antes de aplicar el spec. Sin este paso, el siguiente render del PortfolioSelector dispararía autofallback y borraría los pesos rehidratados.
+- `setPortfolioA/B`, `usePlannerStore.setState({ plan, bootstrap, window })`.
+- `resetSimulation()` para limpiar la sim previa — el asesor presiona Simular después.
+
+Tests nuevos (`src/components/PdfDropZone.test.ts`, 7 tests):
+- Round-trip embed → extract → apply.
+- AMCs propuestos en spec `'amc'` → activa flag.
+- AMCs propuestos en spec `'custom'` (con `weights`) → activa flag.
+- Sin propuestos → flag no se toca.
+- Reset de simulación previa.
+- Aplicación de portafolios + plan + bootstrap + ventana.
+- Rechazo de PDFs sin metadata (`extractStateFromPdf` returns null).
+
+Suite total: 330 → **337 verdes**.
+
+Parte 4b del instructivo actualizada: drag-and-drop pasa a ser **camino primario**, JSON paste queda como **fallback** explícito. El GIF actual (`parte-4b-01-rehidratar.gif`) sigue siendo válido como demo del fallback.
+
+`presentacion-2026-05-08.md` Bloque 4 reescrito: drag-and-drop como demo central + nueva frase clave *"el PDF que generamos para el cliente es también el insumo para la siguiente reunión — el documento ES el plan"*. Checklist actualizado con pre-requisito de PDF de Marta pre-generado.
+
+### 3. Sección C del PDF — Configuración del plan (commit `daa46ef`)
+
+PDF pasa de 3 páginas (A, B, E) a **4 páginas** (A, B, **C**, E). Cierra parcialmente el frente "9 secciones restantes" del cierre 2026-05-05.
+
+Implementación:
+- `src/pdf/sections/C_PlanConfig.tsx` nuevo (307 líneas).
+- Estructura: header cliente uppercase + título "Configuración del plan" + bloque "Plan" (capital, horizonte, modo) + bloque "Reglas de flujo" (una línea por regla con signo bold, monto, freq, rango meses, growth si aplica) + dos columnas con look-through ETF de A/B + bloque bootstrap config (seed, nPaths, blockSize, FIXED).
+- Reusa `expandPortfolio` y `etfWeightTable` de `src/domain/amc-definitions.ts`.
+- Wire en `src/pdf/MercantilPdf.tsx` entre B y E.
+- i18n keys nuevas en `pdf.planConfig.*` para 4 idiomas (es/en final, fr/de con prefijo `[BROUILLON]`/`[ENTWURF]` consistente con projections).
+
+Tests: 337 siguen pasando (la sección es presentación; el roundtrip embed/extract ya cubre el state container).
+
+### 4. Frentes nuevos abiertos durante la sesión
+
+3 memorias de proyecto creadas (memoria automática), cada una con why + how to apply:
+
+- **`project_planner_redesign_presets.md`** — Pocho confirmó rediseñar los 3 presets del FlowEditor (`ahorroAcumulacion / jubilacion / herencia`) para alinearlos con WealthWay (`liquidity / longevity / legacy`). Mismatches detectados:
+  - Liquidity esperada (3 años, corto plazo, fondo emergencia o objetivo cercano) vs Ahorro/Acumulación actual (240 m, no es Liquidity).
+  - Longevity esperada (acumulación + decumulación en una corrida con punto de transición X) vs Jubilación actual (solo decumulación, falta acumulación).
+  - Legacy esperada (perpetuidad / endowment / Yale rule 4% real anual) vs Herencia actual (transferencia única al final = mitad del aporte).
+  - Vincular preset → bucket PDF default automáticamente (hoy son sistemas paralelos).
+
+- **`project_planner_redesign_exportbar.md`** — Pocho intuyó al ver los GIFs que el card "Exportar y compartir" mezcla entregable cliente (botón naranja) con utilidades técnicas (Excel + Copy + Paste JSON). Frente: separar visualmente en sesión futura. Memoria con why + cómo aplicar.
+
+- **`project_planner_demo.md`** — Pocho presenta el 2026-05-08 desde una PC distinta a la suya. Validará todo antes y avisará issues. Si reporta problema, prioridad máxima de fix.
+
+### Estado al cierre 2026-05-07
+
+- Branch `feature/pdf-cierre`: working tree limpio, al día con `main`.
+- `main`: 3 commits del día desplegados a GH Pages — `64d7855`, `65f82d7`, `daa46ef`.
+- **Tests: 337/337 verdes**. Typecheck limpio. Build pasa.
+- **Instructivo deployed** en `andresborrerom.github.io/mercantil-planner/instructivo/` con 22 PNGs + 8 GIFs animados + drag-and-drop documentado como camino primario en Parte 4b.
+- **Planner deployed** con `<PdfDropZone>` activo — drag-and-drop funcional.
+- **PDF de cierre**: 4 páginas (A/B/C/E).
+- Botón "Guía del asesor" del header del planner abre el instructivo en pestaña nueva.
+- Pocho desconectó la PC al final del día. Va a presentar mañana 2026-05-08.
+
+### Para retomar 2026-05-08
+
+Ver `PROMPT-NUEVA-SESION.md` (actualizado al cierre del 2026-05-07).
+
+Próximos pasos en orden (sin urgencia hoy — depende de cómo vaya la presentación):
+1. **Auth Cloudflare Access** — Pocho compra dominio `mawm-lab.com` cuando esté listo.
+2. **D4 — Comparativo A vs B con fan chart paralelo en PDF** (próximo PDF natural).
+3. Secciones D1/D2/D3, F, G, H, I, J, K, L del PDF.
+4. **Redesign presets WealthWay** (ver memoria `project_planner_redesign_presets.md`).
+5. **Redesign ExportBar** (ver memoria `project_planner_redesign_exportbar.md`).
+6. GIF animado del drag-and-drop (~1h).
+7. Logo + paleta corporativa AWM hi-res.
+8. Disclaimer EN/FR/DE.
 

@@ -139,26 +139,34 @@ Todos generados con `npm run capture:instructivo` (Playwright). Output: `instruc
 
 Para regenerar (ej. tras cambios en la UI): `npm run preview` en una terminal + `npm run capture:instructivo` en otra. Los PNG se regeneran determinísticamente desde el state hidratado via "Pegar config JSON".
 
-### ⏳ Pendientes manuales (GIFs + 1 screenshot + logo)
+### ✅ GIFs animados — 8 de 9 hechos al 2026-05-07
 
-Los siguientes assets requieren captura manual:
+Los GIFs se generan ahora con pipeline automatizado: `scripts/capture-gifs.ts` (Playwright `recordVideo` + ffmpeg paleta 2-pass). Pre-requisito: `npm run preview` corriendo en port 4173 + ffmpeg en PATH.
 
-**GIFs (9)** — capturar con ScreenToGif (https://www.screentogif.com), preset *"Smaller — for sharing"*, FPS 12-15, < 2 MB cada uno. Naming `parte-N-XX-descripcion.gif` en `instructivo/assets/`. Después editar el `.md` correspondiente para reemplazar el marker `[GIF — ...]` por `![desc](assets/...gif)`.
+```
+npx tsx scripts/capture-gifs.ts                  # corre los 8 specs definidos
+npx tsx scripts/capture-gifs.ts toggle-overlay   # filtra por nombre parcial
+$env:HEADED='1'; npx tsx scripts/capture-gifs.ts # modo headed para debug
+```
 
-| Asset | Duración | Setup |
-|---|---|---|
-| `parte-2-03-toggle-propuestos.gif` | 8 s | A en custom CashST 30+GlFI 70, toggle ON → destildar → autofallback a GlFI 100 |
-| `parte-2-05-resample.gif` | 6 s | Caso sample, 4 clicks consecutivos en sample path mini-chart |
-| `parte-2-08-toggle-overlay.gif` | 12 s | Caso sample + view Tasas +100 pbs activo, alternar Toggle/Overlay 3 veces |
-| `parte-2-11-sync-preset.gif` | 10 s | Tab Presets, click Estanflación sincronizada, mostrar prob ~1-3% |
-| `parte-2-14-modal-pdf.gif` | 12 s | Botón gris → simular → click → modal abierto |
-| `parte-3-3.1-config-pablo.gif` | 15 s | Configurar de cero el caso Pablo (capital, horizonte, modo, regla) |
-| `parte-3-3.4-pdf-flow.gif` | 18 s | Click Generar PDF → modal → llenar form → descarga |
-| `parte-4b-4b.1-rehidratacion.gif` | 10 s | Pegar JSON en textarea + click Aplicar + ver portafolios restaurados |
-| `parte-5-cierre-pablo.gif` | 20 s | Caso Pablo: simular → modal PDF → form llenado → generar |
+| Asset | MB | Estado | Notas |
+|---|---|---|---|
+| `parte-2-03-toggle-amc-destructivo.gif` | 0.38 | ✅ | Re-grabado a 1.5x post feedback Pocho |
+| `parte-2-09-sample-path.gif` | 1.26 | ✅ | 4 clicks, KPIs estables |
+| `parte-2-10-toggle-overlay.gif` | 2.10 | ✅ | View asimétrico, alternar 3× |
+| `parte-2-11-estanflacion-sincronizada.gif` | 2.29 | ✅ | Preset Sincronizado |
+| `parte-2-14-modal-pdf.gif` | 2.45 | ✅ | Modal PDF recorrido sin generar |
+| `parte-3-01-pablo-config-cero.gif` | 1.23 | ✅ | Configurar Pablo desde default |
+| `parte-3-13-pdf-flow.gif` | 2.58 | ✅ | Flujo PDF end-to-end con descarga |
+| `parte-4b-01-rehidratar.gif` | 2.50 | ✅ | Rehidratación fallback (pegar JSON) |
+| Cierre Pablo (Parte 5) | — | ✅ reusado | Parte 5 reusa `parte-3-13-pdf-flow.gif` (mecánica idéntica para los 4 casos) |
 
-**Screenshot 1**: `parte-4-anexo-cvar.png` — sección E del PDF de cierre. Abrir `research/samples/pocho-longevity.es.pdf` con Adobe Reader, página 3, capturar tabla con Greenshot.
+**Pendiente:** GIF del drag-and-drop PDF (camino primario de Parte 4b). Requiere pre-generar PDF en el script y simular `DataTransfer` drop event en Playwright. Estimado ~1h. Mientras tanto, el instructivo describe el flujo en texto.
+
+### ⏳ Pendientes manuales
+
+**Screenshot**: `parte-4-anexo-cvar.png` — sección E del PDF de cierre. Abrir `research/samples/pocho-longevity.es.pdf` con Adobe Reader, página 3, capturar tabla con Greenshot.
 
 **Logo**: `instructivo/assets/logo-mercantil.png` — entrega Pocho cuando esté listo el archivo hi-res.
 
-**Pinear los `[X]` de Parte 5**: los placeholders narrativos en `parte-5-casos-cliente.md` (ej. `[USD X]`, `[A%]`, `[-Y%]`) refieren a métricas específicas por caso. Los stats panel de cada caso ya están como screenshots — el lector los interpreta visualmente. Si querés pinearlos en texto, los números reales están en las imágenes capturadas (ver `parte-5-{pablo,diana,marta,carlos}-stats.png`).
+**Pinear los `[X]` de Parte 5** (opcional): los placeholders narrativos en `parte-5-casos-cliente.md` (ej. `[USD X]`, `[A%]`, `[-Y%]`) refieren a métricas específicas por caso. Los stats panel de cada caso ya están como screenshots — el lector los interpreta visualmente. Si querés pinearlos en texto, los números reales están en las imágenes capturadas (ver `parte-5-{pablo,diana,marta,carlos}-stats.png`).
