@@ -45,7 +45,7 @@ Tres pasos en este orden:
 
 > **Trampa frecuente**: en modo real, los retiros se interpretan como dólares de **hoy** y se inflan para mantener poder adquisitivo. Un retiro mensual de USD 4.000 en modo real a 25 años termina retirando alrededor de USD 7.400 nominales en el último mes. Si el cliente preguntó por *"USD 4.000 al mes"* asumiendo que era nominal, el plan está pidiendo más capital del que él pensó. Aclararlo siempre.
 
-[GIF — duración 15 s. Configurar de cero el caso Pablo: capital USD 100.000, horizonte 300 m, modo real, inflación 2,5%, regla de aporte mensual USD 2.000 con crecimiento 3%. Mostrar cómo el preset *Ahorro acumulación* se elige primero y la regla se edita después con el monto y crecimiento del cliente.]
+![Configurar caso Pablo desde cero: preset Ahorro acumulación + edits de capital/horizonte/modo/inflación/aporte](assets/parte-3-01-pablo-config-cero.gif)
 
 ---
 
@@ -149,7 +149,7 @@ El PDF generado lleva embebido el state JSON completo en su metadata. En sesione
 
 Mientras la importación drag-and-drop esté en desarrollo, el camino alternativo es la opción 4.3: el asesor copia el JSON de config al clipboard al cierre de la reunión, lo guarda en su sistema de notas, y lo pega al inicio de la siguiente reunión.
 
-[GIF — duración 18 s. Flujo completo de cierre: click *Generar plan personal de inversión* → modal abierto → llenar nombre cliente "Pocho Borrero" + asesor + bucket Longevity + versión Completa + idioma ES → click *Generar PDF* → spinner → descarga del archivo `pocho-longevity.pdf`. Total ≈ 18 segundos para visualizar el flujo end-to-end.]
+![Flujo PDF end-to-end: click "Generar plan personal de inversión" → modal → llenar form → Generar PDF → descarga](assets/parte-3-13-pdf-flow.gif)
 
 ---
 

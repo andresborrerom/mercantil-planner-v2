@@ -42,7 +42,7 @@ Debajo del selector, un donut colapsable muestra el **look-through a ETFs** del 
 
 Por encima de las dos columnas A y B. Default desactivado — los AMCs propuestos no están aprobados todavía y no deberían seleccionarse accidentalmente. Al destildar el toggle se aplica un fallback automático: si algún portafolio quedaba apuntando a un AMC propuesto, vuelve a `GlFI` (signature/amc) o renormaliza el resto a 100% (custom). Es destructivo — al re-tildar, los pesos anteriores no se restauran.
 
-[GIF — duración 8 s. Empezar con un portafolio A en *Custom mix* con CashST 30% + GlFI 70%, toggle de AMCs propuestos activo. Destildar el toggle y mostrar el autofallback que lleva el spec a 100% GlFI. Volver a tildar y mostrar que CashST no regresa. Mensaje pedagógico: *"el toggle es destructivo; al apagarlo se pierden los pesos de los propuestos"*.]
+![Toggle "Mostrar AMCs propuestos" destructivo: CashST 30% + GlFI 70% → 100% GlFI → toggle ON sin restaurar](assets/parte-2-03-toggle-amc-destructivo.gif)
 
 ---
 
@@ -58,7 +58,7 @@ El card *ProfilePreview* tiene tres elementos:
 
 Debajo, un **slider de ventana** dual-thumb sincronizado con el del FanChart. Mover uno mueve el otro automáticamente. Útil para mostrar cómo cambia la lectura del perfil a 1 año vs 5 vs total.
 
-[GIF — duración 6 s. Click 4 veces seguidas en el sample path para mostrar cómo varía el camino entre escenarios; resaltar que los KPIs y los badges no cambian con cada click (porque dependen del portafolio, no del path). El click sólo cambia la trayectoria visualizada.]
+![Sample path: 4 clicks consecutivos, KPIs y badges no cambian (dependen del portafolio, no del path)](assets/parte-2-09-sample-path.gif)
 
 ---
 
@@ -103,7 +103,7 @@ Aparece un switch en el header del fan chart con dos modos:
 
 El eje Y es estable bajo todos los toggles para evitar saltos visuales que confunden al cliente. Sólo se recalcula al mover el slider de ventana.
 
-[GIF — duración 12 s. Empezar con simulación corrida y ningún view activo. Activar el preset *"Tasas suben 100 pbs (pico, 12m)"*. El switch Toggle/Overlay aparece. Alternar tres veces entre Toggle y Overlay para mostrar la diferencia visual. Mostrar también que el eje Y NO se mueve durante los toggles.]
+![View asimétrico activo: alternar Toggle/Overlay tres veces, eje Y estable](assets/parte-2-10-toggle-overlay.gif)
 
 ---
 
@@ -133,7 +133,7 @@ Cuando un view está activo, se muestra debajo el **análisis asimétrico**: pro
 
 > **Regla práctica de confiabilidad**: si nMatched < 50, la herramienta no muestra métricas condicionales (sólo la probabilidad). Entre 50 y 500, las muestra con bandera *"muestra pequeña"*. Por encima de 500, lectura directa.
 
-[GIF — duración 10 s. Tab *Presets* abierto. Activar el preset *"Estanflación sincronizada (≥3m en 12m)"* del grupo Sincronizados. Mostrar cómo aparece la probabilidad (~1-3%), el nMatched correspondiente, y las métricas condicionales debajo. Resaltar visualmente el contraste con el preset *"Estanflación (12m)"* del grupo composite — mismo concepto, probabilidad mucho más alta porque exige co-ocurrencia mensual.]
+![Activar preset "Estanflación sincronizada (≥3m en 12m)": probabilidad ~1-3%, nMatched y métricas condicionales](assets/parte-2-11-estanflacion-sincronizada.gif)
 
 ---
 
@@ -161,7 +161,7 @@ Cuatro botones, en este orden visual:
 3. **📋 Copiar config** — copia al clipboard un JSON con portafolios A, B, plan y bootstrap. Útil para compartir entre asesores la configuración exacta de un caso por chat o mail, sin tener que adjuntar archivos.
 4. **Pegar config JSON** — el inverso del anterior. Pega un JSON copiado por otro asesor y reconstruye exactamente la sesión.
 
-[GIF — duración 12 s. Mostrar primero el botón *Generar plan personal de inversión* deshabilitado (sin simulación). Hacer click en *Simular* y esperar a que termine. El botón se habilita. Click → abre el modal con form completo. Mostrar los 5 grupos del form (cliente, asesor, bucket Wealth Way, versión, idioma, secciones modulares, carta personalizada). Cerrar el modal sin generar.]
+![Botón "Generar plan personal de inversión" disabled → Simular → enabled → modal con form completo → Cancelar](assets/parte-2-14-modal-pdf.gif)
 
 ### Modal "Generar plan personal de inversión"
 

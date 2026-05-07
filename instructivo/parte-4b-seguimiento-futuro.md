@@ -36,7 +36,7 @@ El asesor abre el PDF generado en la reunión previa. Lee al cliente el sessionI
 
 > **Importación drag-and-drop (en desarrollo)**: cuando esté disponible, el asesor arrastra el PDF de la sesión anterior sobre la herramienta y el state se rehidrata automáticamente — portafolios, reglas, ventana, parámetros. Mientras tanto, el flujo manual es: abrir el config JSON guardado por el asesor (ver Parte 3 paso 4.3) y pegarlo en el campo *"Pegar config JSON"* del ExportBar. Reconstruye la sesión exacta.
 
-[GIF — duración 10 s. Mostrar el flujo manual de rehidratación: copiar un JSON del clipboard (simular Ctrl+V en el textarea), click *Aplicar*, mostrar cómo los portafolios A y B y los parámetros del plan se restauran exactamente como estaban.]
+![Rehidratación manual: pegar JSON en el textarea "Pegar config JSON" → Aplicar → portafolios y plan restaurados](assets/parte-4b-01-rehidratar.gif)
 
 ### 2. Verificar que el capital efectivo esté dentro de la banda proyectada (5-10 min)
 

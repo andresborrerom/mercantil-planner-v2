@@ -290,7 +290,9 @@ Para los cuatro casos anteriores, el cierre operativo de la reunión es el mismo
 
 > **Caso Carlos — múltiples PDFs**: si Carlos también tiene capital en bucket Liquidez o Longevidad además del Legado, el asesor genera **un PDF por bucket**: `carlos-legacy.pdf`, `carlos-longevity.pdf`, `carlos-liquidity.pdf`. Cada uno con su propio plan, sus propias decisiones documentadas, su propia conversación. El cliente termina con tres PDFs en su archivo, no con uno consolidado — esto está alineado con el framework UBS Wealth Way *"un bucket, una conversación"*.
 
-[GIF — duración 20 s. Caso Pablo cerrando la reunión: simulación corrida → click *Generar plan personal de inversión* → modal abierto → *Cliente: Pablo*, *Asesor: [tu nombre]*, *Bucket: Longevidad*, *Versión: Completa*, *Idioma: ES*, carta personalizada *"Pablo — adjunto su plan a 25 años con la decisión de Crecimiento como portafolio principal. Próxima revisión en 12 meses."* → click *Generar PDF* → descarga del archivo `pablo-longevity.pdf`.]
+![Flujo PDF cierre Pablo end-to-end: modal → form completo → Generar PDF → descarga](assets/parte-3-13-pdf-flow.gif)
+
+> El GIF anterior es el mismo flujo end-to-end mostrado en la Parte 3 §13 — la mecánica del cierre es idéntica para los 4 casos cliente. Sólo cambia el contenido del form (nombre, bucket, idioma, carta) según el cliente.
 
 ---
 
