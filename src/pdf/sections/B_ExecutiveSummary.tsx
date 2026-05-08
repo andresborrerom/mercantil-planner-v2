@@ -4,21 +4,24 @@ import { useTranslation } from 'react-i18next';
 import { colors } from '../theme/colors';
 import { fonts, fontSize, lineHeight } from '../theme/typography';
 import { pageMargin, spacing } from '../theme/spacing';
+import { BrandBar } from '../components/BrandBar';
 import type { PdfStateContainer } from '../state/types';
 
 const styles = StyleSheet.create({
   page: {
     flex: 1,
     paddingHorizontal: pageMargin.horizontal,
-    paddingTop: pageMargin.vertical,
     paddingBottom: pageMargin.vertical,
     backgroundColor: colors.pageBg,
     color: colors.body,
   },
+  pageWrapper: {
+    flex: 1,
+  },
   header: {
-    fontFamily: fonts.sans,
+    fontFamily: fonts.sansBold,
     fontSize: fontSize.micro,
-    color: colors.muted,
+    color: colors.orange,
     textTransform: 'uppercase',
     letterSpacing: 1.4,
     marginBottom: spacing.sm,
@@ -26,7 +29,7 @@ const styles = StyleSheet.create({
   title: {
     fontFamily: fonts.serif,
     fontSize: fontSize.h1,
-    color: colors.ink,
+    color: colors.navy,
     marginBottom: spacing.xl,
     lineHeight: lineHeight.tight,
   },
@@ -60,7 +63,7 @@ const styles = StyleSheet.create({
   metricValue: {
     fontFamily: fonts.serifBold,
     fontSize: fontSize.h1,
-    color: colors.accent,
+    color: colors.orange,
     lineHeight: lineHeight.tight,
   },
   metricLabel: {
@@ -110,7 +113,9 @@ export function ExecutiveSummarySection({ state, placeholders }: Props) {
     : '—';
 
   return (
-    <View style={styles.page}>
+    <View style={styles.pageWrapper}>
+      <BrandBar state={state} />
+      <View style={styles.page}>
       <Text style={styles.header}>{state.client.name}</Text>
       <Text style={styles.title}>{t('pdf.exec.title')}</Text>
 
@@ -138,6 +143,7 @@ export function ExecutiveSummarySection({ state, placeholders }: Props) {
         proyección 30a, regímenes históricos pendientes — se completan en sesiones siguientes
         contra datos reales del store.]
       </Text>
+      </View>
     </View>
   );
 }

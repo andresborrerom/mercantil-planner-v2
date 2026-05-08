@@ -19,21 +19,24 @@ import type { FlowRule, PortfolioSpec } from '../../domain/types';
 import { colors } from '../theme/colors';
 import { fonts, fontSize, lineHeight } from '../theme/typography';
 import { pageMargin, spacing } from '../theme/spacing';
+import { BrandBar } from '../components/BrandBar';
 import type { PdfStateContainer } from '../state/types';
 
 const styles = StyleSheet.create({
+  pageWrapper: {
+    flex: 1,
+  },
   page: {
     flex: 1,
     paddingHorizontal: pageMargin.horizontal,
-    paddingTop: pageMargin.vertical,
     paddingBottom: pageMargin.vertical,
     backgroundColor: colors.pageBg,
     color: colors.body,
   },
   header: {
-    fontFamily: fonts.sans,
+    fontFamily: fonts.sansBold,
     fontSize: fontSize.micro,
-    color: colors.muted,
+    color: colors.orange,
     textTransform: 'uppercase',
     letterSpacing: 1.4,
     marginBottom: spacing.sm,
@@ -41,7 +44,7 @@ const styles = StyleSheet.create({
   title: {
     fontFamily: fonts.serif,
     fontSize: fontSize.h1,
-    color: colors.ink,
+    color: colors.navy,
     marginBottom: spacing.lg,
     lineHeight: lineHeight.tight,
   },
@@ -177,7 +180,9 @@ export function PlanConfigSection({ state }: Props): JSX.Element {
       : t('pdf.planConfig.modeNominal');
 
   return (
-    <View style={styles.page}>
+    <View style={styles.pageWrapper}>
+      <BrandBar state={state} />
+      <View style={styles.page}>
       <Text style={styles.header}>{state.client.name}</Text>
       <Text style={styles.title}>{t('pdf.planConfig.title')}</Text>
 
@@ -228,6 +233,7 @@ export function PlanConfigSection({ state }: Props): JSX.Element {
           {(bootstrap.fixed6Annual * 100).toFixed(2)}%  ·  FIXED9:{' '}
           {(bootstrap.fixed9Annual * 100).toFixed(2)}%
         </Text>
+      </View>
       </View>
     </View>
   );

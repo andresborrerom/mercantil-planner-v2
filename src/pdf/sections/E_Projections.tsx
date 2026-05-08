@@ -5,22 +5,25 @@ import { colors } from '../theme/colors';
 import { fonts, fontSize, lineHeight } from '../theme/typography';
 import { pageMargin, spacing } from '../theme/spacing';
 import { SvgFanChart } from '../projections/SvgFanChart';
+import { BrandBar } from '../components/BrandBar';
 import type { ProjectionsData } from '../projections/types';
 import type { PdfStateContainer } from '../state/types';
 
 const styles = StyleSheet.create({
+  pageWrapper: {
+    flex: 1,
+  },
   page: {
     flex: 1,
     paddingHorizontal: pageMargin.horizontal,
-    paddingTop: pageMargin.vertical,
     paddingBottom: pageMargin.vertical,
     backgroundColor: colors.pageBg,
     color: colors.body,
   },
   header: {
-    fontFamily: fonts.sans,
+    fontFamily: fonts.sansBold,
     fontSize: fontSize.micro,
-    color: colors.muted,
+    color: colors.orange,
     textTransform: 'uppercase',
     letterSpacing: 1.4,
     marginBottom: spacing.xs,
@@ -28,7 +31,7 @@ const styles = StyleSheet.create({
   title: {
     fontFamily: fonts.serif,
     fontSize: fontSize.h1,
-    color: colors.ink,
+    color: colors.navy,
     marginBottom: spacing.sm,
     lineHeight: lineHeight.tight,
   },
@@ -60,13 +63,13 @@ const styles = StyleSheet.create({
   legendSwatchSolid: {
     width: 14,
     height: 4,
-    backgroundColor: colors.accent,
+    backgroundColor: colors.navy,
     marginRight: spacing.xs,
   },
   legendSwatchBand: {
     width: 14,
     height: 8,
-    backgroundColor: colors.accent,
+    backgroundColor: colors.navy,
     opacity: 0.28,
     marginRight: spacing.xs,
   },
@@ -164,9 +167,9 @@ const styles = StyleSheet.create({
   narrativeBox: {
     marginTop: spacing.lg,
     padding: spacing.md,
-    backgroundColor: colors.accentSoft,
+    backgroundColor: colors.navySoft,
     borderLeftWidth: 3,
-    borderLeftColor: colors.accent,
+    borderLeftColor: colors.navy,
   },
   narrativeText: {
     fontFamily: fonts.serif,
@@ -225,7 +228,9 @@ export function ProjectionsSection({ state, data }: Props) {
   ];
 
   return (
-    <View style={styles.page}>
+    <View style={styles.pageWrapper}>
+      <BrandBar state={state} />
+      <View style={styles.page}>
       <Text style={styles.header}>{state.client.name}</Text>
       <Text style={styles.title}>{t('pdf.projections.title')}</Text>
       <Text style={styles.subtitle}>
@@ -296,6 +301,7 @@ export function ProjectionsSection({ state, data }: Props) {
             deltaPct: formatPct(Math.abs(data.narrative.cvar5DeltaVsMedian)),
           })}
         </Text>
+      </View>
       </View>
     </View>
   );

@@ -14,6 +14,11 @@ export type PdfStateContainer = {
   };
   advisor: {
     name: string;
+    /**
+     * Mensaje personalizado del asesor para el cliente. Se renderiza en la
+     * portada (sección A) si está presente. Opcional — input libre del modal.
+     */
+    note?: string;
   };
   locale: PdfLocale;
   version: PdfVersion;

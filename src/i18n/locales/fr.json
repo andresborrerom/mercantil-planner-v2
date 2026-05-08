@@ -1,8 +1,9 @@
 {
   "pdf": {
     "brand": {
-      "name": "Mercantil Asset and Wealth Management",
-      "shortName": "Mercantil AWM"
+      "name": "Mercantil Servicios Financieros Internacional",
+      "shortName": "Mercantil",
+      "tagline": "[BROUILLON] Plan d'investissement personnel"
     },
     "cover": {
       "subtitle": "Plan d'investissement personnel — analyse fondée sur des scénarios historiques réels",
@@ -17,7 +18,8 @@
       "date": "Date",
       "version": "Version",
       "sessionId": "Identifiant de session",
-      "locale": "Langue"
+      "locale": "Langue",
+      "advisorNoteLabel": "[BROUILLON] Mot du conseiller"
     },
     "exec": {
       "title": "Résumé exécutif",
@@ -95,6 +97,34 @@
       "seed": "Seed",
       "nPaths": "Trajectoires",
       "blockSize": "Block size"
+    },
+    "comparison": {
+      "title": "[BROUILLON] Comparaison de portefeuilles",
+      "subtitle": "[BROUILLON] Risque et rendement sur la fenêtre du plan ({{start}}–{{end}} mois · {{years}} ans)",
+      "header": {
+        "metric": "[BROUILLON] Métrique",
+        "portfolioA": "Portefeuille A",
+        "portfolioB": "Portefeuille B",
+        "delta": "Δ (B−A)"
+      },
+      "metric": {
+        "twr": "[BROUILLON] TWR annualisé",
+        "xirr": "[BROUILLON] XIRR (pondéré par flux)",
+        "maxDD": "[BROUILLON] Max drawdown (niveau gérant)",
+        "negMonths": "[BROUILLON] Mois négatifs par an",
+        "vol": "[BROUILLON] Volatilité annualisée",
+        "worst12m": "[BROUILLON] Pire 12 mois roulants",
+        "finalValue": "[BROUILLON] Valeur finale",
+        "ruinProb": "[BROUILLON] Probabilité de ruine (horizon total)",
+        "shortfallProb": "[BROUILLON] Prob. de finir sous le capital apporté"
+      },
+      "noWorst12m": "[BROUILLON] Fenêtre < 12 m",
+      "bandFootnote": "[BROUILLON] Médiane entre parenthèses : bandes P10–P90 sur les trajectoires simulées.",
+      "ruinFootnote": "[BROUILLON] Les probabilités de ruine et de shortfall sont scalaires (sans agrégation par percentiles). Ruine sur l'horizon total ; shortfall, à la clôture de la fenêtre.",
+      "interpretation": {
+        "title": "[BROUILLON] Lecture exécutive",
+        "body": "[BROUILLON] La colonne Δ montre dans quelle mesure le Portefeuille B est meilleur (vert) ou pire (rouge) que A pour chaque métrique. Lisez la médiane avec sa bande P10–P90 pour mesurer l'incertitude — un Δ favorable à la médiane peut coexister avec un Δ défavorable à la bande basse, et c'est ce trade-off que la conversation avec le client doit aborder."
+      }
     },
     "footer": {
       "page": "Page",

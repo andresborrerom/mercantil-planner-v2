@@ -1,7 +1,7 @@
 /**
- * Header estilo Mercantil — replica visualmente el top bar de mercantilbanco.com.pa:
- * logo "M" dorada + wordmark "Mercantil" con swoosh naranja + nav con subrayado
- * naranja en item activo + botones CTA a la derecha.
+ * Header estilo Mercantil — usa el wordmark oficial de Mercantil Servicios
+ * Financieros Internacional sobre fondo navy (servido desde
+ * `public/mercantil-logo.png`), con nav y CTAs a la derecha.
  *
  * Renderiza un badge informativo "Fase 2 · RF yield-path" que indica que los 11
  * tickers de renta fija usan reconstrucción estructural (carry evolutivo + duration·Δy
@@ -11,6 +11,8 @@
  * Incluye un `ThemeToggle` para alternar entre tema claro y oscuro.
  */
 import ThemeToggle from './ThemeToggle';
+
+const LOGO_URL = `${import.meta.env.BASE_URL}mercantil-logo.png`;
 
 export default function Header() {
   const navItems = [
@@ -24,13 +26,12 @@ export default function Header() {
     <header className="sticky top-0 z-20 bg-white border-b border-mercantil-line shadow-sm dark:bg-mercantil-dark-panel dark:border-mercantil-dark-line dark:shadow-none">
       <div className="mx-auto max-w-6xl px-6 h-16 flex items-center justify-between">
         <div className="flex items-center gap-3">
-          <BrandMark />
-          <div className="hidden md:flex items-center gap-2 leading-none">
-            <span className="text-2xl font-semibold text-mercantil-navy tracking-tight dark:text-mercantil-dark-ink">
-              Mercantil
-            </span>
-            <Swoosh />
-          </div>
+          <img
+            src={LOGO_URL}
+            alt="Mercantil Servicios Financieros Internacional"
+            className="h-10 w-auto select-none"
+            draggable={false}
+          />
           <PhaseBadge />
         </div>
 
@@ -75,17 +76,6 @@ export default function Header() {
   );
 }
 
-/** Círculo con "M" dorada, evocando el 100 + logo del sitio. */
-function BrandMark() {
-  return (
-    <div className="flex items-center justify-center h-10 w-10 rounded-full bg-mercantil-navy">
-      <span className="font-serif text-xl text-mercantil-gold-soft leading-none">
-        M
-      </span>
-    </div>
-  );
-}
-
 /**
  * Badge informativo que indica que los 11 tickers de renta fija usan
  * reconstrucción yield-path (Fase 2): carry evolutivo a partir del nivel actual
@@ -113,25 +103,3 @@ function PhaseBadge() {
   );
 }
 
-/** Pequeño swoosh naranja que acompaña el wordmark. */
-function Swoosh() {
-  return (
-    <svg
-      width="22"
-      height="14"
-      viewBox="0 0 22 14"
-      fill="none"
-      aria-hidden
-      className="translate-y-[1px]"
-    >
-      <path
-        d="M1 9 C 6 1, 14 1, 21 6"
-        stroke="#E97031"
-        strokeWidth="3"
-        strokeLinecap="round"
-        fill="none"
-      />
-      <circle cx="21" cy="6" r="2.5" fill="#E97031" />
-    </svg>
-  );
-}

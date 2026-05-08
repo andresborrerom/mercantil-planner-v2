@@ -1,8 +1,9 @@
 {
   "pdf": {
     "brand": {
-      "name": "Mercantil Asset and Wealth Management",
-      "shortName": "Mercantil AWM"
+      "name": "Mercantil Servicios Financieros Internacional",
+      "shortName": "Mercantil",
+      "tagline": "[ENTWURF] Persönlicher Anlageplan"
     },
     "cover": {
       "subtitle": "Persönlicher Anlageplan — Analyse auf Basis realer historischer Szenarien",
@@ -17,7 +18,8 @@
       "date": "Datum",
       "version": "Version",
       "sessionId": "Sitzungs-ID",
-      "locale": "Sprache"
+      "locale": "Sprache",
+      "advisorNoteLabel": "[ENTWURF] Hinweis des Beraters"
     },
     "exec": {
       "title": "Zusammenfassung",
@@ -95,6 +97,34 @@
       "seed": "Seed",
       "nPaths": "Pfade",
       "blockSize": "Block size"
+    },
+    "comparison": {
+      "title": "[ENTWURF] Portfolio-Vergleich",
+      "subtitle": "[ENTWURF] Risiko und Rendite über das Plan-Fenster ({{start}}–{{end}} Monate · {{years}} Jahre)",
+      "header": {
+        "metric": "[ENTWURF] Kennzahl",
+        "portfolioA": "Portfolio A",
+        "portfolioB": "Portfolio B",
+        "delta": "Δ (B−A)"
+      },
+      "metric": {
+        "twr": "[ENTWURF] Annualisierter TWR",
+        "xirr": "[ENTWURF] XIRR (cashflow-gewichtet)",
+        "maxDD": "[ENTWURF] Max Drawdown (Manager-Ebene)",
+        "negMonths": "[ENTWURF] Negative Monate pro Jahr",
+        "vol": "[ENTWURF] Annualisierte Volatilität",
+        "worst12m": "[ENTWURF] Schlechteste 12-Monats-Rendite",
+        "finalValue": "[ENTWURF] Endwert",
+        "ruinProb": "[ENTWURF] Ruinwahrscheinlichkeit (gesamter Horizont)",
+        "shortfallProb": "[ENTWURF] Wahrscheinlichkeit unter eingebrachtem Kapital zu enden"
+      },
+      "noWorst12m": "[ENTWURF] Fenster < 12 m",
+      "bandFootnote": "[ENTWURF] Median in Klammern: P10–P90 Bänder über simulierte Pfade.",
+      "ruinFootnote": "[ENTWURF] Ruin- und Shortfall-Wahrscheinlichkeit sind Skalare (keine Perzentil-Aggregation). Ruin über gesamten Horizont; Shortfall am Fensterende.",
+      "interpretation": {
+        "title": "[ENTWURF] Executive-Lesart",
+        "body": "[ENTWURF] Die Δ-Spalte zeigt, wieviel besser (grün) oder schlechter (rot) Portfolio B gegenüber A in jeder Kennzahl ist. Lesen Sie den Median zusammen mit dem P10–P90-Band, um die Unsicherheit einzuschätzen — ein günstiger Δ am Median kann mit einem ungünstigen Δ am unteren Band einhergehen, und genau dieser Trade-off sollte das Mandantengespräch adressieren."
+      }
     },
     "footer": {
       "page": "Seite",

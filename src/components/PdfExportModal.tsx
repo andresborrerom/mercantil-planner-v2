@@ -81,7 +81,17 @@ export default function PdfExportModal({ open, onClose }: Props) {
         state.version,
       );
       const sim = snapshot.simA;
-      if (!sim || !sim.values || !sim.netContributions) {
+      const simB = snapshot.simB;
+      const metricsA = snapshot.metricsA;
+      const metricsB = snapshot.metricsB;
+      if (
+        !sim ||
+        !sim.values ||
+        !sim.netContributions ||
+        !simB ||
+        !metricsA ||
+        !metricsB
+      ) {
         throw new Error(
           'No hay simulación disponible. Ejecute Simular antes de generar el PDF.',
         );
@@ -90,6 +100,8 @@ export default function PdfExportModal({ open, onClose }: Props) {
       const simulationData: PdfSimulationData = {
         valuesA: sim.values,
         netContributionsA: sim.netContributions,
+        metricsA,
+        metricsB,
         nPaths,
         horizonMonths: snapshot.plan.horizonMonths,
         mode: snapshot.plan.mode,

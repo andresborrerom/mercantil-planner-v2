@@ -1,8 +1,9 @@
 {
   "pdf": {
     "brand": {
-      "name": "Mercantil Asset and Wealth Management",
-      "shortName": "Mercantil AWM"
+      "name": "Mercantil Servicios Financieros Internacional",
+      "shortName": "Mercantil",
+      "tagline": "Personal Investment Plan"
     },
     "cover": {
       "subtitle": "Personal Investment Plan — Analysis Based on Real Historical Scenarios",
@@ -17,7 +18,8 @@
       "date": "Date",
       "version": "Version",
       "sessionId": "Session ID",
-      "locale": "Language"
+      "locale": "Language",
+      "advisorNoteLabel": "Advisor's note"
     },
     "exec": {
       "title": "Executive Summary",
@@ -95,6 +97,34 @@
       "seed": "Seed",
       "nPaths": "Paths",
       "blockSize": "Block size"
+    },
+    "comparison": {
+      "title": "Portfolio comparison",
+      "subtitle": "Risk and return over the plan window ({{start}}–{{end}} months · {{years}} years)",
+      "header": {
+        "metric": "Metric",
+        "portfolioA": "Portfolio A",
+        "portfolioB": "Portfolio B",
+        "delta": "Δ (B−A)"
+      },
+      "metric": {
+        "twr": "Annualized TWR",
+        "xirr": "XIRR (money-weighted)",
+        "maxDD": "Max drawdown (manager-level)",
+        "negMonths": "Negative months per year",
+        "vol": "Annualized volatility",
+        "worst12m": "Worst rolling 12-month",
+        "finalValue": "Final value",
+        "ruinProb": "Ruin probability (full horizon)",
+        "shortfallProb": "Prob. of ending below contributed capital"
+      },
+      "noWorst12m": "Window < 12 m",
+      "bandFootnote": "Median in parentheses: P10–P90 bands across simulated paths.",
+      "ruinFootnote": "Ruin and shortfall probabilities are scalars (they do not aggregate to percentiles). Ruin is measured over the full horizon; shortfall, at window close.",
+      "interpretation": {
+        "title": "Executive read",
+        "body": "The Δ column shows how much better (green) or worse (red) Portfolio B is than A on each metric. Read the median together with its P10–P90 band to gauge uncertainty — a favorable Δ at the median can coexist with an unfavorable Δ at the lower band, and that trade-off is exactly what the client conversation should address."
+      }
     },
     "footer": {
       "page": "Page",

@@ -1,8 +1,9 @@
 {
   "pdf": {
     "brand": {
-      "name": "Mercantil Asset and Wealth Management",
-      "shortName": "Mercantil AWM"
+      "name": "Mercantil Servicios Financieros Internacional",
+      "shortName": "Mercantil",
+      "tagline": "Plan personal de inversión"
     },
     "cover": {
       "subtitle": "Plan personal de inversión — análisis basado en escenarios históricos reales",
@@ -17,7 +18,8 @@
       "date": "Fecha",
       "version": "Versión",
       "sessionId": "ID de sesión",
-      "locale": "Idioma"
+      "locale": "Idioma",
+      "advisorNoteLabel": "Mensaje del asesor"
     },
     "exec": {
       "title": "Resumen ejecutivo",
@@ -95,6 +97,34 @@
       "seed": "Seed",
       "nPaths": "Trayectorias",
       "blockSize": "Block size"
+    },
+    "comparison": {
+      "title": "Comparativo de portafolios",
+      "subtitle": "Riesgo y retorno sobre la ventana del plan ({{start}}–{{end}} meses · {{years}} años)",
+      "header": {
+        "metric": "Métrica",
+        "portfolioA": "Portafolio A",
+        "portfolioB": "Portafolio B",
+        "delta": "Δ (B−A)"
+      },
+      "metric": {
+        "twr": "TWR anualizado",
+        "xirr": "XIRR (money-weighted)",
+        "maxDD": "Max Drawdown (manager-level)",
+        "negMonths": "Meses negativos por año",
+        "vol": "Volatilidad anualizada",
+        "worst12m": "Peor rolling 12 meses",
+        "finalValue": "Valor final",
+        "ruinProb": "Probabilidad de ruina (horizonte total)",
+        "shortfallProb": "Prob. terminar bajo capital aportado"
+      },
+      "noWorst12m": "Ventana < 12 m",
+      "bandFootnote": "Mediana entre paréntesis: bandas P10–P90 sobre los paths simulados.",
+      "ruinFootnote": "Probabilidad de ruina y de shortfall son escalares (no agregan a percentiles). Ruina se mide sobre el horizonte total; shortfall, al cierre de la ventana.",
+      "interpretation": {
+        "title": "Lectura ejecutiva",
+        "body": "La columna Δ muestra cuánto mejor (verde) o peor (rojo) es el Portafolio B respecto al A en cada métrica. Mire la mediana junto a la banda P10–P90 para evaluar el rango de incertidumbre — un Δ favorable en la mediana puede coexistir con un Δ desfavorable en la banda baja, y ese trade-off es exactamente lo que la conversación con el cliente debe abordar."
+      }
     },
     "footer": {
       "page": "Página",

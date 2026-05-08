@@ -1,16 +1,24 @@
-import type { FanChartBands, TailRiskAtHorizon } from '../../domain/metrics';
+import type { FanChartBands, TailRiskAtHorizon, WindowMetrics } from '../../domain/metrics';
 
 /**
- * Datos crudos de simulación que el caller pasa al PDF para alimentar la
- * sección E (Proyecciones). NO se embebe en el state container — son MB
- * de Float32Array determinísticos dado seed + portfolio + plan, así que
- * se regeneran al rehidratar.
+ * Datos crudos de simulación que el caller pasa al PDF para alimentar las
+ * secciones D (Comparativo) y E (Proyecciones). NO se embebe en el state
+ * container — son MB de Float32Array determinísticos dado seed + portfolio +
+ * plan, así que se regeneran al rehidratar.
  */
 export type PdfSimulationData = {
   /** Row-major [nPaths × (horizonMonths + 1)]. valuesA[0] = initialCapital. */
   valuesA: Float32Array;
   /** Capital aportado neto por mes. Length = horizonMonths + 1. */
   netContributionsA: Float32Array;
+  /**
+   * Métricas A computadas sobre la ventana del state container — necesarias
+   * para la sección D (Comparativo). Opcional: omitir hace que la sección no
+   * se renderice. La UI siempre las pasa cuando hay simulación.
+   */
+  metricsA?: WindowMetrics;
+  /** Métricas B computadas sobre la ventana del state container. */
+  metricsB?: WindowMetrics;
   nPaths: number;
   horizonMonths: number;
   mode: 'nominal' | 'real';

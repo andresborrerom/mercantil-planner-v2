@@ -75,12 +75,16 @@ export function buildPdfStateContainer(
 ): PdfStateContainer {
   const generatedAt = options.generatedAt ?? new Date();
   const slug = clientSlug(form.clientName);
+  const note = form.advisorNote?.trim();
   return {
     schemaVersion: PDF_STATE_SCHEMA_VERSION,
     generatedAt: generatedAt.toISOString(),
     sessionId: generateSessionId(slug, form.bucket, generatedAt),
     client: { name: form.clientName.trim() || 'Cliente', bucket: form.bucket },
-    advisor: { name: form.advisorName.trim() || '—' },
+    advisor: {
+      name: form.advisorName.trim() || '—',
+      ...(note ? { note } : {}),
+    },
     locale: form.locale,
     version: form.version,
     modules: { ...form.modules },

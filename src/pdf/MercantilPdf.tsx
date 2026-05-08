@@ -3,6 +3,7 @@ import { Document, Page, StyleSheet } from '@react-pdf/renderer';
 import { CoverSection } from './sections/A_Cover';
 import { ExecutiveSummarySection } from './sections/B_ExecutiveSummary';
 import { PlanConfigSection } from './sections/C_PlanConfig';
+import { ComparisonSection } from './sections/D_Comparison';
 import { ProjectionsSection } from './sections/E_Projections';
 import { PdfFooter } from './components/PdfFooter';
 import { buildProjectionsData } from './projections/buildProjectionsData';
@@ -72,6 +73,16 @@ export function createMercantilPdfDocument(
         <PlanConfigSection state={state} />
         <PdfFooter sessionId={state.sessionId} />
       </Page>
+      {simulationData?.metricsA && simulationData?.metricsB ? (
+        <Page size="A4" style={styles.page}>
+          <ComparisonSection
+            state={state}
+            metricsA={simulationData.metricsA}
+            metricsB={simulationData.metricsB}
+          />
+          <PdfFooter sessionId={state.sessionId} />
+        </Page>
+      ) : null}
       {projections ? (
         <Page size="A4" style={styles.page}>
           <ProjectionsSection state={state} data={projections} />
