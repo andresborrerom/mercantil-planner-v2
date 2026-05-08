@@ -76,7 +76,7 @@ function formatGeneratedAt(iso: string): string {
   }
 }
 
-export default function PdfDropZone(): JSX.Element {
+export default function PdfDropZone() {
   const [dragOver, setDragOver] = useState(false);
   const [feedback, setFeedback] = useState<Feedback | null>(null);
   const dragCounterRef = useRef(0);

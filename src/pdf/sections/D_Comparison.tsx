@@ -249,10 +249,7 @@ function median(value: Band | number | null): number | null {
   return value.p50;
 }
 
-function deltaCellStyle(
-  delta: number | null,
-  polarity: Polarity,
-): typeof styles.deltaCellPositive {
+function deltaCellStyle(delta: number | null, polarity: Polarity) {
   if (delta == null || !Number.isFinite(delta)) return styles.deltaCellNeutral;
   const epsilon = 1e-9;
   if (Math.abs(delta) < epsilon) return styles.deltaCellNeutral;

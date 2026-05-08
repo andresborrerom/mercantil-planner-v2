@@ -170,7 +170,7 @@ type Props = {
   state: PdfStateContainer;
 };
 
-export function PlanConfigSection({ state }: Props): JSX.Element {
+export function PlanConfigSection({ state }: Props){
   const { t } = useTranslation();
   const { plan, bootstrap, portfolioA, portfolioB } = state.planner;
   const horizonYears = (plan.horizonMonths / 12).toFixed(1);
@@ -239,7 +239,7 @@ export function PlanConfigSection({ state }: Props): JSX.Element {
   );
 }
 
-function RuleLine({ rule, horizonMonths }: { rule: FlowRule; horizonMonths: number }): JSX.Element {
+function RuleLine({ rule, horizonMonths }: { rule: FlowRule; horizonMonths: number }){
   const { t } = useTranslation();
   const signKey = rule.sign === 'deposit' ? 'pdf.planConfig.deposit' : 'pdf.planConfig.withdraw';
   const freqKey = `pdf.planConfig.freq.${rule.frequency}` as const;
@@ -269,7 +269,7 @@ function PortfolioColumn({
 }: {
   accent: string;
   spec: PortfolioSpec;
-}): JSX.Element {
+}){
   const { t } = useTranslation();
   const expanded = expandPortfolio(spec);
   const etfRows = etfWeightTable(expanded);
