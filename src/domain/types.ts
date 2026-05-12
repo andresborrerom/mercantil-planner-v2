@@ -138,6 +138,40 @@ export type ExpandedPortfolio = {
 };
 
 // ---------------------------------------------------------------------------
+// Bullet Ladder (v2 H2b — extensión para iBonds / BulletShares paramétricos)
+// ---------------------------------------------------------------------------
+
+/**
+ * Especificación de un ladder de bullets dentro de un portafolio.
+ *
+ * El ladder es ORTOGONAL a la composición de ETFs/FIXED del portafolio.
+ * El `totalWeight` define qué fracción del portafolio total va al ladder; el
+ * resto (100 − totalWeight) se distribuye entre los ETFs/FIXED del
+ * ExpandedPortfolio.
+ *
+ * Los `bullets` definen la composición INTERNA del ladder (sus pesos deben
+ * sumar 100 dentro del ladder, no en el portafolio total).
+ */
+export type LadderSpec = {
+  /** Peso total del ladder en el portafolio (0..100). */
+  totalWeight: number;
+  /** Composición interna del ladder. */
+  bullets: ReadonlyArray<{
+    /** Definición del bullet (referencia a BulletDef de bullets.ts). */
+    def: import('./bullets').BulletDef;
+    /** Peso de este bullet dentro del ladder (0..100; sumar a 100). */
+    weight: number;
+  }>;
+  /**
+   * Spread inicial sobre la curva treasury (decimal, e.g., 0.011 = 110 bp).
+   * Aplica a TODOS los bullets del ladder (asume mismo perfil de crédito).
+   * Para corporate IG: ~110 bp media histórica (ver ROLLOVER_ENGINE.md).
+   * Para treasury ladder (zero credit risk): 0.
+   */
+  initialSpread: number;
+};
+
+// ---------------------------------------------------------------------------
 // Flujos (§5)
 // ---------------------------------------------------------------------------
 

@@ -606,3 +606,192 @@ describe('runBootstrap — outputEtfReturns', () => {
     }
   });
 });
+
+// ---------------------------------------------------------------------------
+// H2b — Bullet ladder integration tests
+// ---------------------------------------------------------------------------
+
+import type { LadderSpec } from './types';
+import { defaultBulletLineup } from './bullets';
+
+describe('runBootstrap — bullet ladder (H2b)', () => {
+  it('valida totalWeight ∈ [0, 100]', () => {
+    const bad: LadderSpec = {
+      totalWeight: 150,
+      bullets: [{ def: defaultBulletLineup()[0], weight: 100 }],
+      initialSpread: 0,
+    };
+    expect(() =>
+      runBootstrap(makeInput(makeSpyOnly(), makeSpyOnly(), { ladders: { A: bad } })),
+    ).toThrow(/totalWeight=150/);
+  });
+
+  it('valida que los pesos internos sumen 100', () => {
+    const lineup = defaultBulletLineup();
+    const bad: LadderSpec = {
+      totalWeight: 50,
+      bullets: [
+        { def: lineup[0], weight: 30 },
+        { def: lineup[1], weight: 40 }, // suma 70, no 100
+      ],
+      initialSpread: 0,
+    };
+    expect(() =>
+      runBootstrap(makeInput(makeSpyOnly(), makeSpyOnly(), { ladders: { A: bad } })),
+    ).toThrow(/suman 70/);
+  });
+
+  it('ladder con totalWeight=0 produce los mismos retornos que sin ladder', () => {
+    const lineup = defaultBulletLineup();
+    const ladder: LadderSpec = {
+      totalWeight: 0,
+      bullets: [{ def: lineup[0], weight: 100 }],
+      initialSpread: 0,
+    };
+    const common = {
+      portfolios: { A: makeSpyOnly(), B: makeSpyOnly() },
+      horizonMonths: 12,
+      config: { ...DEFAULT_BOOTSTRAP_CONFIG, nPaths: 50, seed: 11 },
+    };
+    const withLadder = runBootstrap({ ...common, ladders: { A: ladder } });
+    const withoutLadder = runBootstrap(common);
+    // El ladder NO afecta rB (no se le configuró)
+    for (let i = 0; i < withLadder.portfolioReturnsB.length; i++) {
+      expect(Math.fround(withLadder.portfolioReturnsB[i])).toBe(
+        Math.fround(withoutLadder.portfolioReturnsB[i]),
+      );
+    }
+    // Con totalWeight=0, rA es 100% etf, así que iguala a sin ladder
+    // PERO: tener ladder fuerza la simulación yield-path para A. La rama RF
+    // calcula equity tickers desde RETURNS igual que el fast path, así que SPY
+    // debe coincidir bit-a-bit con el bootstrap original (sin yield sim).
+    for (let i = 0; i < withLadder.portfolioReturnsA.length; i++) {
+      expect(Math.fround(withLadder.portfolioReturnsA[i])).toBe(
+        Math.fround(withoutLadder.portfolioReturnsA[i]),
+      );
+    }
+  });
+
+  it('ladder 100% en un solo bullet 5y con spread=0 → return mensual cerca de yield_curve/12', () => {
+    // Setup: ladder 100% del portafolio, 1 bullet 5y, spread 0.
+    // Curva inicial (de YIELDS al final del dataset): YIELD_BOUNDS[i].initial.
+    // El portafolio A se vuelve 100% bullet, así que rA[s][t] ≈ ytm_5y / 12 + Δcurve
+    // En media sobre nPaths, el componente Δcurve se cancela (yield path es martingala
+    // con damping). Esperamos rA medio ≈ ytm_5y_inicial / 12 (en orden de magnitud).
+    const lineup = defaultBulletLineup();
+    const bullet5y = lineup.find((b) => b.maturityY >= 4.5 && b.maturityY <= 5.5);
+    expect(bullet5y).toBeDefined();
+    const ladder: LadderSpec = {
+      totalWeight: 100,
+      bullets: [{ def: bullet5y!, weight: 100 }],
+      initialSpread: 0,
+    };
+    const out = runBootstrap({
+      portfolios: { A: makeSpyOnly(), B: makeSpyOnly() },
+      horizonMonths: 12,
+      config: { ...DEFAULT_BOOTSTRAP_CONFIG, nPaths: 300, seed: 17 },
+      ladders: { A: ladder },
+    });
+    // Promedio del retorno mensual de rA (12 meses × 300 paths)
+    let sum = 0;
+    let count = 0;
+    for (let i = 0; i < out.portfolioReturnsA.length; i++) {
+      sum += out.portfolioReturnsA[i];
+      count++;
+    }
+    const meanMonthly = sum / count;
+    // FVX (nodo 5y) inicial. La curva real al cierre del dataset.
+    const fvxInitial = getYieldBounds('FVX').initial;
+    // Tolerancia generosa: roll, convex, drift de curva → ±2pp anualizado del carry
+    const expectedAnnual = fvxInitial;
+    const actualAnnual = meanMonthly * 12;
+    expect(actualAnnual).toBeGreaterThan(expectedAnnual - 0.04);
+    expect(actualAnnual).toBeLessThan(expectedAnnual + 0.04);
+  });
+
+  it('ladder con spread positivo → retorno medio mayor que ladder con spread cero', () => {
+    const lineup = defaultBulletLineup();
+    const bullet5y = lineup.find((b) => b.maturityY >= 4.5 && b.maturityY <= 5.5)!;
+    const baseLadder = {
+      totalWeight: 100,
+      bullets: [{ def: bullet5y, weight: 100 }],
+    };
+    const common = {
+      portfolios: { A: makeSpyOnly(), B: makeSpyOnly() },
+      horizonMonths: 12,
+      config: { ...DEFAULT_BOOTSTRAP_CONFIG, nPaths: 300, seed: 23 },
+    };
+    const noSpread = runBootstrap({
+      ...common,
+      ladders: { A: { ...baseLadder, initialSpread: 0 } },
+    });
+    const withSpread = runBootstrap({
+      ...common,
+      ladders: { A: { ...baseLadder, initialSpread: 0.011 } }, // 110 bp
+    });
+    let sumNo = 0;
+    let sumWith = 0;
+    for (let i = 0; i < noSpread.portfolioReturnsA.length; i++) {
+      sumNo += noSpread.portfolioReturnsA[i];
+      sumWith += withSpread.portfolioReturnsA[i];
+    }
+    const diffAnnual = (sumWith - sumNo) / noSpread.portfolioReturnsA.length * 12;
+    // El spread debe sumar al retorno medio anualizado, en el orden de 110 bp.
+    // Tolerancia: ±30 bp por interacción con roll/convex (dur ≈ 4.6, no exactamente 1.0).
+    expect(diffAnnual).toBeGreaterThan(0.008);
+    expect(diffAnnual).toBeLessThan(0.014);
+  });
+
+  it('ladder 50/50 con etfs → return ~ 0.5×etf + 0.5×bullet (sanity de blend)', () => {
+    const lineup = defaultBulletLineup();
+    const bullet5y = lineup.find((b) => b.maturityY >= 4.5 && b.maturityY <= 5.5)!;
+    const portfolio = makeSpyOnly(); // 100% SPY
+    const ladder: LadderSpec = {
+      totalWeight: 50,
+      bullets: [{ def: bullet5y, weight: 100 }],
+      initialSpread: 0,
+    };
+    const common = {
+      portfolios: { A: portfolio, B: portfolio },
+      horizonMonths: 12,
+      config: { ...DEFAULT_BOOTSTRAP_CONFIG, nPaths: 200, seed: 41 },
+    };
+    // B es solo SPY (sin ladder). A es 50/50 SPY/bullet.
+    const out = runBootstrap({ ...common, ladders: { A: ladder } });
+    expect(out.bulletBasketReturnsA).toBeDefined();
+    expect(out.bulletBasketReturnsB).toBeUndefined();
+    // Reconstruimos manualmente: rA esperado = 0.5 × rSPY + 0.5 × rBasket
+    const basket = out.bulletBasketReturnsA!;
+    for (let i = 0; i < out.portfolioReturnsA.length; i++) {
+      const expected = 0.5 * out.portfolioReturnsB[i] + 0.5 * basket[i];
+      expect(Math.fround(out.portfolioReturnsA[i])).toBeCloseTo(expected, 5);
+    }
+  });
+
+  it('expone bulletBasketReturnsA/B solo si el portafolio tiene ladder', () => {
+    const lineup = defaultBulletLineup();
+    const ladder: LadderSpec = {
+      totalWeight: 30,
+      bullets: [{ def: lineup[0], weight: 100 }],
+      initialSpread: 0,
+    };
+    const out = runBootstrap(
+      makeInput(makeSpyOnly(), makeSpyOnly(), { ladders: { A: ladder, B: null } }),
+    );
+    expect(out.bulletBasketReturnsA).toBeInstanceOf(Float32Array);
+    expect(out.bulletBasketReturnsB).toBeUndefined();
+  });
+
+  it('outputYieldPaths permanece off cuando solo hay ladders (memoria interna no se expone)', () => {
+    const lineup = defaultBulletLineup();
+    const ladder: LadderSpec = {
+      totalWeight: 30,
+      bullets: [{ def: lineup[0], weight: 100 }],
+      initialSpread: 0,
+    };
+    const out = runBootstrap(
+      makeInput(makeSpyOnly(), makeSpyOnly(), { ladders: { A: ladder } }),
+    );
+    expect(out.yieldPaths).toBeUndefined();
+  });
+});

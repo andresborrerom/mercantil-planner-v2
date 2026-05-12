@@ -1,0 +1,661 @@
+{
+  "generated_by": "code/dump_cashflow_parity.py",
+  "purpose": "Validar paridad cashflow.ts (mercantil-planner-v2) vs cashflow.py",
+  "scenarios": [
+    {
+      "name": "T1_amortizacion_pura",
+      "n_sims": 5,
+      "n_bullets": 1,
+      "n_months": 36,
+      "initial_cash": 1000000.0,
+      "initial_equity": 0.0,
+      "initial_bullets": [
+        0.0
+      ],
+      "curve_decimal": [
+        0.04,
+        0.04,
+        0.04,
+        0.04
+      ],
+      "plan_alloc": {
+        "bullets": 0.0,
+        "equity": 0.0,
+        "cash": 1.0
+      },
+      "loan_event": {
+        "trigger_month": 0,
+        "amount_pct_aum": 0.3,
+        "term_months": 36
+      },
+      "inflow_base_annual": 0.0,
+      "inflow_growth": 0.0,
+      "cash_band_upper": 2.0,
+      "bullet_shortest_idx": 0,
+      "expected_final_state": {
+        "cash_aum": [
+          678491.8271214232,
+          678491.8271214232,
+          678491.8271214232,
+          678491.8271214232,
+          678491.8271214232
+        ],
+        "equity_aum": [
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0
+        ],
+        "bullet_aums": [
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0
+        ],
+        "loan_balance": [
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0
+        ],
+        "loan_payment_per_month": [
+          8930.782579960574,
+          8930.782579960574,
+          8930.782579960574,
+          8930.782579960574,
+          8930.782579960574
+        ],
+        "loan_rate_monthly": [
+          0.0037916666666666667,
+          0.0037916666666666667,
+          0.0037916666666666667,
+          0.0037916666666666667,
+          0.0037916666666666667
+        ],
+        "loan_months_remaining": [
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        "loan_active": [
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        "cum_interest_paid": [
+          21508.172878578232,
+          21508.172878578232,
+          21508.172878578232,
+          21508.172878578232,
+          21508.172878578232
+        ],
+        "cum_forced_equity_sales": [
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0
+        ],
+        "cum_forced_bullet_sales": [
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0
+        ],
+        "cum_loan_shortfall": [
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0
+        ]
+      },
+      "expected_last_log": {
+        "t": 35,
+        "inflow": 0.0,
+        "loan_pmt_med": 8930.782579958095,
+        "loan_interest_med": 33.734640105275275,
+        "loan_balance_med": 0.0,
+        "forced_equity_sale_med": 0.0,
+        "forced_bullet_sale_med": 0.0,
+        "shortfall_med": 0.0,
+        "n_active_loans": 0
+      }
+    },
+    {
+      "name": "T2_inflows_rebalance",
+      "n_sims": 5,
+      "n_bullets": 2,
+      "n_months": 12,
+      "initial_cash": 40000.0,
+      "initial_equity": 240000.0,
+      "initial_bullets": [
+        260000.0,
+        260000.0
+      ],
+      "curve_decimal": [
+        0.04,
+        0.04,
+        0.04,
+        0.04
+      ],
+      "plan_alloc": {
+        "bullets": 0.65,
+        "equity": 0.3,
+        "cash": 0.05
+      },
+      "loan_event": null,
+      "inflow_base_annual": 250000,
+      "inflow_growth": 0.0,
+      "cash_band_upper": 0.05,
+      "bullet_shortest_idx": 0,
+      "expected_final_state": {
+        "cash_aum": [
+          52499.99999999998,
+          52499.99999999998,
+          52499.99999999998,
+          52499.99999999998,
+          52499.99999999998
+        ],
+        "equity_aum": [
+          315000.0,
+          315000.0,
+          315000.0,
+          315000.0,
+          315000.0
+        ],
+        "bullet_aums": [
+          341249.99999999977,
+          341249.99999999977,
+          341249.99999999977,
+          341249.99999999977,
+          341249.99999999977,
+          341249.99999999977,
+          341249.99999999977,
+          341249.99999999977,
+          341249.99999999977,
+          341249.99999999977
+        ],
+        "loan_balance": [
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0
+        ],
+        "loan_payment_per_month": [
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0
+        ],
+        "loan_rate_monthly": [
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0
+        ],
+        "loan_months_remaining": [
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        "loan_active": [
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        "cum_interest_paid": [
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0
+        ],
+        "cum_forced_equity_sales": [
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0
+        ],
+        "cum_forced_bullet_sales": [
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0
+        ],
+        "cum_loan_shortfall": [
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0
+        ]
+      },
+      "expected_last_log": {
+        "t": 11,
+        "inflow": 20833.333333333332,
+        "rebalanced_excess_med": 19791.666666666664,
+        "n_sims_rebalanced": 5
+      }
+    },
+    {
+      "name": "T3_cascada_basica",
+      "n_sims": 1,
+      "n_bullets": 1,
+      "n_months": 24,
+      "initial_cash": 0.0,
+      "initial_equity": 5000.0,
+      "initial_bullets": [
+        50000.0
+      ],
+      "curve_decimal": [
+        0.04,
+        0.04,
+        0.04,
+        0.04
+      ],
+      "plan_alloc": {
+        "bullets": 0.9,
+        "equity": 0.1,
+        "cash": 0.0
+      },
+      "loan_event": {
+        "trigger_month": 0,
+        "amount_pct_aum": 0.3,
+        "term_months": 24
+      },
+      "inflow_base_annual": 0.0,
+      "inflow_growth": 0.0,
+      "cash_band_upper": 2.0,
+      "bullet_shortest_idx": 0,
+      "expected_final_state": {
+        "cash_aum": [
+          0.0
+        ],
+        "equity_aum": [
+          0.0
+        ],
+        "bullet_aums": [
+          37706.625200186776
+        ],
+        "loan_balance": [
+          0.0
+        ],
+        "loan_payment_per_month": [
+          720.5572833255557
+        ],
+        "loan_rate_monthly": [
+          0.0037916666666666667
+        ],
+        "loan_months_remaining": [
+          0
+        ],
+        "loan_active": [
+          0
+        ],
+        "cum_interest_paid": [
+          793.374799813198
+        ],
+        "cum_forced_equity_sales": [
+          5000.000000000001
+        ],
+        "cum_forced_bullet_sales": [
+          12293.374799813197
+        ],
+        "cum_loan_shortfall": [
+          0.0
+        ]
+      },
+      "expected_last_log": {
+        "t": 23,
+        "inflow": 0.0,
+        "loan_pmt_med": 720.5572833254181,
+        "loan_interest_med": 2.721792901191858,
+        "loan_balance_med": 0.0,
+        "forced_equity_sale_med": 0.0,
+        "forced_bullet_sale_med": 720.5572833254181,
+        "shortfall_med": 0.0,
+        "n_active_loans": 0
+      }
+    },
+    {
+      "name": "T4_endowment_realista",
+      "n_sims": 10,
+      "n_bullets": 3,
+      "n_months": 72,
+      "initial_cash": 250000.0,
+      "initial_equity": 1500000.0,
+      "initial_bullets": [
+        1083333.3333333333,
+        1083333.3333333333,
+        1083333.3333333333
+      ],
+      "curve_decimal": [
+        0.045,
+        0.042,
+        0.04,
+        0.045
+      ],
+      "plan_alloc": {
+        "bullets": 0.65,
+        "equity": 0.3,
+        "cash": 0.05
+      },
+      "loan_event": {
+        "trigger_month": 12,
+        "amount_pct_aum": 0.1,
+        "term_months": 60
+      },
+      "inflow_base_annual": 250000,
+      "inflow_growth": 0.02,
+      "cash_band_upper": 0.05,
+      "bullet_shortest_idx": 0,
+      "expected_final_state": {
+        "cash_aum": [
+          299288.9401013402,
+          299288.9401013402,
+          299288.9401013402,
+          299288.9401013402,
+          299288.9401013402,
+          299288.9401013402,
+          299288.9401013402,
+          299288.9401013402,
+          299288.9401013402,
+          299288.9401013402
+        ],
+        "equity_aum": [
+          1795733.6406080408,
+          1795733.6406080408,
+          1795733.6406080408,
+          1795733.6406080408,
+          1795733.6406080408,
+          1795733.6406080408,
+          1795733.6406080408,
+          1795733.6406080408,
+          1795733.6406080408,
+          1795733.6406080408
+        ],
+        "bullet_aums": [
+          1296918.740439141,
+          1296918.740439141,
+          1296918.740439141,
+          1296918.740439141,
+          1296918.740439141,
+          1296918.740439141,
+          1296918.740439141,
+          1296918.740439141,
+          1296918.740439141,
+          1296918.740439141,
+          1296918.740439141,
+          1296918.740439141,
+          1296918.740439141,
+          1296918.740439141,
+          1296918.740439141,
+          1296918.740439141,
+          1296918.740439141,
+          1296918.740439141,
+          1296918.740439141,
+          1296918.740439141,
+          1296918.740439141,
+          1296918.740439141,
+          1296918.740439141,
+          1296918.740439141,
+          1296918.740439141,
+          1296918.740439141,
+          1296918.740439141,
+          1296918.740439141,
+          1296918.740439141,
+          1296918.740439141
+        ],
+        "loan_balance": [
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0
+        ],
+        "loan_payment_per_month": [
+          9854.190646220075,
+          9854.190646220075,
+          9854.190646220075,
+          9854.190646220075,
+          9854.190646220075,
+          9854.190646220075,
+          9854.190646220075,
+          9854.190646220075,
+          9854.190646220075,
+          9854.190646220075
+        ],
+        "loan_rate_monthly": [
+          0.003982017543859649,
+          0.003982017543859649,
+          0.003982017543859649,
+          0.003982017543859649,
+          0.003982017543859649,
+          0.003982017543859649,
+          0.003982017543859649,
+          0.003982017543859649,
+          0.003982017543859649,
+          0.003982017543859649
+        ],
+        "loan_months_remaining": [
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        "loan_active": [
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        "cum_interest_paid": [
+          66251.43877320101,
+          66251.43877320101,
+          66251.43877320101,
+          66251.43877320101,
+          66251.43877320101,
+          66251.43877320101,
+          66251.43877320101,
+          66251.43877320101,
+          66251.43877320101,
+          66251.43877320101
+        ],
+        "cum_forced_equity_sales": [
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0
+        ],
+        "cum_forced_bullet_sales": [
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0
+        ],
+        "cum_loan_shortfall": [
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0
+        ]
+      },
+      "expected_last_log": {
+        "t": 71,
+        "inflow": 23001.683399999998,
+        "loan_pmt_med": 9854.190646216774,
+        "loan_interest_med": 39.08392715017791,
+        "loan_balance_med": 0.0,
+        "forced_equity_sale_med": 0.0,
+        "forced_bullet_sale_med": 0.0,
+        "shortfall_med": 0.0,
+        "n_active_loans": 0,
+        "rebalanced_excess_med": 12490.118116094032,
+        "n_sims_rebalanced": 10
+      }
+    },
+    {
+      "name": "T5_tasa_baja_curva",
+      "n_sims": 3,
+      "n_bullets": 2,
+      "n_months": 24,
+      "initial_cash": 200000.0,
+      "initial_equity": 300000.0,
+      "initial_bullets": [
+        200000.0,
+        300000.0
+      ],
+      "curve_decimal": [
+        0.01,
+        0.012,
+        0.015,
+        0.02
+      ],
+      "plan_alloc": {
+        "bullets": 0.6,
+        "equity": 0.35,
+        "cash": 0.05
+      },
+      "loan_event": {
+        "trigger_month": 3,
+        "amount_pct_aum": 0.15,
+        "term_months": 24
+      },
+      "inflow_base_annual": 120000,
+      "inflow_growth": 0.0,
+      "cash_band_upper": 0.05,
+      "bullet_shortest_idx": 1,
+      "expected_final_state": {
+        "cash_aum": [
+          55060.97387041657,
+          55060.97387041657,
+          55060.97387041657
+        ],
+        "equity_aum": [
+          390689.9749876529,
+          390689.9749876529,
+          390689.9749876529
+        ],
+        "bullet_aums": [
+          262187.41142010485,
+          393281.11713015696,
+          262187.41142010485,
+          393281.11713015696,
+          262187.41142010485,
+          393281.11713015696
+        ],
+        "loan_balance": [
+          19742.44848997549,
+          19742.44848997549,
+          19742.44848997549
+        ],
+        "loan_payment_per_month": [
+          6608.596313888983,
+          6608.596313888983,
+          6608.596313888983
+        ],
+        "loan_rate_monthly": [
+          0.00210921052631579,
+          0.00210921052631579,
+          0.00210921052631579
+        ],
+        "loan_months_remaining": [
+          3,
+          3,
+          3
+        ],
+        "loan_active": [
+          1,
+          1,
+          1
+        ],
+        "cum_interest_paid": [
+          4022.9710816441407,
+          4022.9710816441407,
+          4022.9710816441407
+        ],
+        "cum_forced_equity_sales": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "cum_forced_bullet_sales": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "cum_loan_shortfall": [
+          0.0,
+          0.0,
+          0.0
+        ]
+      },
+      "expected_last_log": {
+        "t": 23,
+        "inflow": 10000.0,
+        "loan_pmt_med": 6608.596313888983,
+        "loan_interest_med": 55.462918109034185,
+        "loan_balance_med": 19742.44848997549,
+        "forced_equity_sale_med": 0.0,
+        "forced_bullet_sale_med": 0.0,
+        "shortfall_med": 0.0,
+        "n_active_loans": 3,
+        "rebalanced_excess_med": 3221.8335018054568,
+        "n_sims_rebalanced": 3
+      }
+    }
+  ]
+}

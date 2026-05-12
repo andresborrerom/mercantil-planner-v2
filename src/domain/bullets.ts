@@ -65,7 +65,7 @@ export interface BulletDef {
  *
  * Outside [0.25, 30] usa extrapolación plana (igual al nodo más cercano).
  */
-export function interpCurve(nodeYields: readonly number[], maturity: number): number {
+export function interpCurve(nodeYields: ArrayLike<number>, maturity: number): number {
   if (nodeYields.length !== 4) {
     throw new Error(`interpCurve: expected 4 node yields, got ${nodeYields.length}`);
   }
@@ -217,6 +217,133 @@ export function simulateBulletPath(
   }
 
   return out;
+}
+
+// =============================================================================
+// MONTE CARLO BULLET RETURNS (vectorizado para integrarse en el worker)
+// =============================================================================
+
+export interface ComputeBulletReturnsInput {
+  readonly bullets: ReadonlyArray<BulletDef>;
+  /** Curva en t=0 (antes del primer paso), en decimal: [IRX, FVX, TNX, TYX]. */
+  readonly initialCurve: readonly [number, number, number, number];
+  /** Yield paths end-of-month simulados, decimal. Cada Float32Array de length [nPaths × horizonMonths]. */
+  readonly yieldPaths: {
+    readonly IRX: Float32Array;
+    readonly FVX: Float32Array;
+    readonly TNX: Float32Array;
+    readonly TYX: Float32Array;
+  };
+  readonly nPaths: number;
+  readonly horizonMonths: number;
+  /** Spread sobre la curva treasury, en decimal. e.g., 0.011 = 110 bp. */
+  readonly initialSpread: number;
+}
+
+export interface ComputeBulletReturnsOutput {
+  /** Para cada bullet, Float32Array row-major [nPaths × horizonMonths] con retorno mensual. */
+  readonly returns: ReadonlyArray<Float32Array>;
+  /** Para cada bullet, Uint8Array row-major [nPaths × horizonMonths] (1 = vivo, 0 = vencido). */
+  readonly alive: ReadonlyArray<Uint8Array>;
+}
+
+/**
+ * Calcula los retornos mensuales de un conjunto de bullets a lo largo de N
+ * paths bootstrap, dada la trayectoria de yields ya simulada (con damping).
+ *
+ * Aprovecha que la worker ya simula el yield path una vez, así que solo le
+ * pasamos esos paths y NO recomputamos la dinámica de tasas. La integración
+ * con bootstrap.ts está en `runBootstrap` (H2b).
+ *
+ * Memoria: nBullets × nPaths × horizonMonths × 4 bytes (returns) + 1 byte
+ * (alive). Para 11 bullets × 5000 paths × 120 meses = ~33 MB returns + 6.6 MB
+ * alive. Aceptable.
+ */
+export function computeBulletReturns(input: ComputeBulletReturnsInput): ComputeBulletReturnsOutput {
+  const { bullets, initialCurve, yieldPaths, nPaths, horizonMonths, initialSpread } = input;
+  const nBullets = bullets.length;
+
+  // Allocate output buffers
+  const returns: Float32Array[] = new Array(nBullets);
+  const alive: Uint8Array[] = new Array(nBullets);
+  for (let b = 0; b < nBullets; b++) {
+    returns[b] = new Float32Array(nPaths * horizonMonths);
+    alive[b] = new Uint8Array(nPaths * horizonMonths);
+  }
+
+  // Per-bullet state buffers (reusados across sims con reset al inicio de cada sim)
+  const matState = new Float32Array(nBullets);
+  const durState = new Float32Array(nBullets);
+
+  // Buffer de curvas (evita re-allocar cada iteración)
+  const prevCurve = new Float32Array(4);
+  const newCurve = new Float32Array(4);
+
+  for (let s = 0; s < nPaths; s++) {
+    // Reset estado por sim
+    for (let b = 0; b < nBullets; b++) {
+      matState[b] = bullets[b].maturityY;
+      durState[b] = bullets[b].durInitY;
+    }
+    // Initial curve at t=0
+    prevCurve[0] = initialCurve[0];
+    prevCurve[1] = initialCurve[1];
+    prevCurve[2] = initialCurve[2];
+    prevCurve[3] = initialCurve[3];
+
+    const sOff = s * horizonMonths;
+    for (let t = 0; t < horizonMonths; t++) {
+      const cellIdx = sOff + t;
+      newCurve[0] = yieldPaths.IRX[cellIdx];
+      newCurve[1] = yieldPaths.FVX[cellIdx];
+      newCurve[2] = yieldPaths.TNX[cellIdx];
+      newCurve[3] = yieldPaths.TYX[cellIdx];
+
+      for (let b = 0; b < nBullets; b++) {
+        const mPrev = matState[b];
+        if (mPrev <= 0) {
+          // Bullet ya venció — retornos 0, no vivo
+          returns[b][cellIdx] = 0;
+          alive[b][cellIdx] = 0;
+          continue;
+        }
+        const mNew = mPrev - 1 / 12;
+        const durPrev = durState[b];
+        const cv = convexityFromDur(durPrev);
+
+        const ytmPrev = interpCurve(prevCurve, mPrev) + initialSpread;
+        const ytmCurveOnly = interpCurve(newCurve, mPrev) + initialSpread;
+        // Usamos max(mNew, 0.001) para evitar interpolar fuera del rango cuando el bullet está casi vencido
+        const mNewClamped = mNew > 0.001 ? mNew : 0.001;
+        const ytmT = interpCurve(newCurve, mNewClamped) + initialSpread;
+
+        const dyTotal = ytmT - ytmPrev;
+        const dyCurve = ytmCurveOnly - ytmPrev;
+        const dyRoll  = ytmT - ytmCurveOnly;
+
+        const carry  = ytmPrev / 12;
+        const curveR = -durPrev * dyCurve;
+        const rollR  = -durPrev * dyRoll;
+        const convex = 0.5 * cv * dyTotal * dyTotal;
+
+        returns[b][cellIdx] = carry + curveR + rollR + convex;
+        alive[b][cellIdx] = mNew > 0 ? 1 : 0;
+
+        // Update state para próximo mes
+        matState[b] = mNew;
+        durState[b] = durPrev - 1 / 12;
+        if (durState[b] < 0) durState[b] = 0;
+      }
+
+      // prevCurve = newCurve para próxima iteración
+      prevCurve[0] = newCurve[0];
+      prevCurve[1] = newCurve[1];
+      prevCurve[2] = newCurve[2];
+      prevCurve[3] = newCurve[3];
+    }
+  }
+
+  return { returns, alive };
 }
 
 // =============================================================================

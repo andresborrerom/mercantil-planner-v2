@@ -39,7 +39,8 @@ import {
   type RfTicker,
 } from '../data/market.generated';
 import { mulberry32 } from './prng';
-import type { BootstrapConfig, ExpandedPortfolio } from './types';
+import type { BootstrapConfig, ExpandedPortfolio, LadderSpec } from './types';
+import { computeBulletReturns } from './bullets';
 import {
   RF_CONFIG,
   DAMPING_EXPONENT,
@@ -115,6 +116,25 @@ export type BootstrapInput = {
    * MUCHO más pesado que yieldPaths — opt-in explícito. Por default false.
    */
   outputEtfReturns?: boolean;
+  /**
+   * Bullet ladders opcionales por portafolio (v2 H2b).
+   *
+   * Si está presente para un portafolio, su retorno se blende como:
+   *   r_total = (1 − ladder.totalWeight/100) × r_etfs + (ladder.totalWeight/100) × r_bulletBasket
+   *
+   * donde r_etfs es el retorno del ExpandedPortfolio (tratado como 100% de sí
+   * mismo) y r_bulletBasket es la combinación ponderada de los bullets del
+   * ladder. La distribución dentro del ladder vive en `ladder.bullets[].weight`
+   * (suman 100 entre sí).
+   *
+   * Si un ladder está presente, internamente se fuerza la simulación de yield
+   * paths (necesaria para evaluar bullets paramétricamente). El consumidor no
+   * tiene que setear `outputYieldPaths` para que funcione.
+   */
+  ladders?: {
+    A?: LadderSpec | null;
+    B?: LadderSpec | null;
+  };
 };
 
 /**
@@ -159,6 +179,14 @@ export type BootstrapOutput = {
    * Mapeo por ticker (32 tickers). Útil para views con subject `etfReturn`.
    */
   etfReturns?: EtfReturnsOutput;
+  /**
+   * Retornos mensuales del basket de bullets de los ladders A/B, ya
+   * ponderados internamente (suma de `weight/100 × r_bullet`) — antes del
+   * blending con el resto del portafolio. Row-major [nPaths × horizonMonths].
+   * Solo presente si el portafolio correspondiente tiene `ladder`. Diagnóstico.
+   */
+  bulletBasketReturnsA?: Float32Array;
+  bulletBasketReturnsB?: Float32Array;
   /** Meta para que el consumidor verifique parámetros. */
   meta: {
     nPaths: number;
@@ -439,8 +467,19 @@ export function runBootstrap(
   const { portfolios, horizonMonths, config } = input;
   const outputYieldPaths = input.outputYieldPaths === true;
   const outputEtfReturns = input.outputEtfReturns === true;
+  const ladderA: LadderSpec | null = input.ladders?.A ?? null;
+  const ladderB: LadderSpec | null = input.ladders?.B ?? null;
+  const hasAnyLadder = ladderA !== null || ladderB !== null;
+  // Si hay ladders, internamente NECESITAMOS los yield paths aunque el
+  // consumer no haya pedido emitirlos. Allocate y escribimos siempre, pero
+  // solo exponemos en `output.yieldPaths` si `outputYieldPaths === true`.
+  const recordYieldPaths = outputYieldPaths || hasAnyLadder;
   const { seed, nPaths, blockSize, fixed6Annual, fixed9Annual } = config;
   const { onProgress } = options;
+
+  // --- Validación de ladders ---
+  if (ladderA) validateLadder(ladderA, 'A');
+  if (ladderB) validateLadder(ladderB, 'B');
 
   // --- Validación de parámetros ---
   if (!Number.isInteger(horizonMonths) || horizonMonths < 1 || horizonMonths > MAX_HORIZON_MONTHS) {
@@ -474,19 +513,21 @@ export function runBootstrap(
   // aunque el portafolio no toque RF — los RF tickers se reconstruyen desde
   // el path de yield, no desde retornos históricos totales. Forzamos la rama
   // unified para que los outputs opcionales sean coherentes con los portfolio
-  // returns.
-  const needsYieldSim = rfActive || outputYieldPaths || outputEtfReturns;
+  // returns. Idem para ladders: requieren yield paths para evaluar bullets.
+  const needsYieldSim = rfActive || recordYieldPaths || outputEtfReturns;
 
   // --- Output buffers ---
   const rA = new Float32Array(nPaths * horizonMonths);
   const rB = new Float32Array(nPaths * horizonMonths);
 
-  // --- Yield paths output (opt-in) ---
+  // --- Yield paths buffers (alocados si outputYieldPaths O hay ladders).
+  // Cuando solo hay ladders y el consumer no pidió outputYieldPaths, escribimos
+  // los paths igual pero NO los exponemos en `output.yieldPaths`. ---
   let yIRX: Float32Array | null = null;
   let yFVX: Float32Array | null = null;
   let yTNX: Float32Array | null = null;
   let yTYX: Float32Array | null = null;
-  if (outputYieldPaths) {
+  if (recordYieldPaths) {
     yIRX = new Float32Array(nPaths * horizonMonths);
     yFVX = new Float32Array(nPaths * horizonMonths);
     yTNX = new Float32Array(nPaths * horizonMonths);
@@ -621,7 +662,7 @@ export function runBootstrap(
 
           // 1b. (Opcional) Emitir yield paths. El orden sigue YIELD_KEYS_ORDERED:
           //     IRX=0, FVX=1, TNX=2, TYX=3. Cada array es [nPaths × horizonMonths].
-          if (outputYieldPaths) {
+          if (recordYieldPaths) {
             const yOutIdx = pOff + t + k;
             yIRX![yOutIdx] = yPath[0];
             yFVX![yOutIdx] = yPath[1];
@@ -674,6 +715,58 @@ export function runBootstrap(
     }
   }
 
+  // ---------------------------------------------------------------------------
+  // Postproceso de ladders: blend de retornos bullet con retornos de ETFs/FIXED.
+  // r_total = (1 − ladder.totalWeight/100) × r_etfs + (ladder.totalWeight/100) × r_basket
+  // donde r_basket = Σ_b (bullet.weight/100) × r_bullet_b.
+  // ---------------------------------------------------------------------------
+  let bulletBasketA: Float32Array | null = null;
+  let bulletBasketB: Float32Array | null = null;
+  if (hasAnyLadder) {
+    const initialCurve: [number, number, number, number] = [
+      YIELD_BOUNDS[0].initial,
+      YIELD_BOUNDS[1].initial,
+      YIELD_BOUNDS[2].initial,
+      YIELD_BOUNDS[3].initial,
+    ];
+    const yieldPathsForBullets = {
+      IRX: yIRX!,
+      FVX: yFVX!,
+      TNX: yTNX!,
+      TYX: yTYX!,
+    };
+    const total = nPaths * horizonMonths;
+
+    if (ladderA) {
+      bulletBasketA = computeLadderBasket(
+        ladderA,
+        initialCurve,
+        yieldPathsForBullets,
+        nPaths,
+        horizonMonths,
+      );
+      const lw = ladderA.totalWeight / 100;
+      const ew = 1 - lw;
+      for (let i = 0; i < total; i++) {
+        rA[i] = ew * rA[i] + lw * bulletBasketA[i];
+      }
+    }
+    if (ladderB) {
+      bulletBasketB = computeLadderBasket(
+        ladderB,
+        initialCurve,
+        yieldPathsForBullets,
+        nPaths,
+        horizonMonths,
+      );
+      const lw = ladderB.totalWeight / 100;
+      const ew = 1 - lw;
+      for (let i = 0; i < total; i++) {
+        rB[i] = ew * rB[i] + lw * bulletBasketB[i];
+      }
+    }
+  }
+
   const t1 =
     typeof performance !== 'undefined' && typeof performance.now === 'function'
       ? performance.now()
@@ -708,7 +801,77 @@ export function runBootstrap(
     }
     output.etfReturns = etfReturns;
   }
+  if (bulletBasketA) output.bulletBasketReturnsA = bulletBasketA;
+  if (bulletBasketB) output.bulletBasketReturnsB = bulletBasketB;
   return output;
+}
+
+// ---------------------------------------------------------------------------
+// Helpers de ladder (privados al módulo)
+// ---------------------------------------------------------------------------
+
+function validateLadder(ladder: LadderSpec, label: 'A' | 'B'): void {
+  if (!Number.isFinite(ladder.totalWeight) || ladder.totalWeight < 0 || ladder.totalWeight > 100) {
+    throw new Error(
+      `runBootstrap: ladder ${label} totalWeight=${ladder.totalWeight} fuera de [0, 100]`,
+    );
+  }
+  if (!Array.isArray(ladder.bullets) || ladder.bullets.length === 0) {
+    throw new Error(`runBootstrap: ladder ${label} no tiene bullets`);
+  }
+  let sum = 0;
+  for (const b of ladder.bullets) {
+    if (!Number.isFinite(b.weight) || b.weight < 0) {
+      throw new Error(`runBootstrap: ladder ${label} bullet "${b.def.name}" peso inválido ${b.weight}`);
+    }
+    sum += b.weight;
+  }
+  if (Math.abs(sum - 100) > 0.01) {
+    throw new Error(
+      `runBootstrap: ladder ${label} pesos internos suman ${sum.toFixed(3)} (esperado 100)`,
+    );
+  }
+  if (!Number.isFinite(ladder.initialSpread)) {
+    throw new Error(`runBootstrap: ladder ${label} initialSpread inválido ${ladder.initialSpread}`);
+  }
+}
+
+/**
+ * Computa el retorno del basket de un ladder (Σ_b w_b/100 × r_bullet_b) como
+ * un Float32Array row-major [nPaths × horizonMonths]. No aplica el `totalWeight`
+ * del ladder — eso es responsabilidad del caller (que lo blende con r_etfs).
+ */
+function computeLadderBasket(
+  ladder: LadderSpec,
+  initialCurve: readonly [number, number, number, number],
+  yieldPaths: {
+    readonly IRX: Float32Array;
+    readonly FVX: Float32Array;
+    readonly TNX: Float32Array;
+    readonly TYX: Float32Array;
+  },
+  nPaths: number,
+  horizonMonths: number,
+): Float32Array {
+  const total = nPaths * horizonMonths;
+  const basket = new Float32Array(total);
+  const result = computeBulletReturns({
+    bullets: ladder.bullets.map((b) => b.def),
+    initialCurve,
+    yieldPaths,
+    nPaths,
+    horizonMonths,
+    initialSpread: ladder.initialSpread,
+  });
+  for (let b = 0; b < ladder.bullets.length; b++) {
+    const w = ladder.bullets[b].weight / 100;
+    if (w === 0) continue;
+    const rBullet = result.returns[b];
+    for (let i = 0; i < total; i++) {
+      basket[i] += w * rBullet[i];
+    }
+  }
+  return basket;
 }
 
 // ---------------------------------------------------------------------------

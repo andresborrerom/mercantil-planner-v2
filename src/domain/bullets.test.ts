@@ -16,7 +16,6 @@ import {
   defaultBulletLineup,
   NODE_MATURITIES,
   type BulletDef,
-  type BulletMonthDecomp,
 } from './bullets';
 
 describe('interpCurve', () => {
