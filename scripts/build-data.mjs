@@ -33,6 +33,8 @@ const EXPECTED_TICKERS = [
   'AGG', 'ACWI', 'SPY', 'EZU', 'EWJ', 'URTH', 'EEM', 'ACWX', 'IJR', 'IWD',
   'IWF', 'IXN', 'IXG', 'RXI', 'EXI', 'IXJ', 'IXP', 'KXI', 'MXI', 'IXC',
   'RWO', 'JXI',
+  // v2 H1 (2026-05-12): tickers nuevos para low-vol equity + short cash
+  'USMV', 'SPLV', 'SCHD', 'NOBL', 'SHY',
 ];
 
 /** RF tickers tal como aparecen en mercantil_rf_decomposed.csv (orden sensible). */
@@ -69,6 +71,12 @@ const NAN_PROXY_MAP = {
   KXI: 'ACWI', //   Sector staples → global equity
   MXI: 'ACWI', //   Sector materials → global equity
   JXI: 'ACWI', //   Sector utilities → global equity
+  // v2 H1 (2026-05-12): proxies para low-vol equity (launched 2011-2013)
+  USMV: 'SPY', //   MSCI USA Min Vol → US equity (lanzado 2011-10)
+  SPLV: 'SPY', //   S&P 500 Low Vol → US equity (lanzado 2011-05)
+  SCHD: 'IWD', //   Schwab US Dividend → US value (lanzado 2011-10)
+  NOBL: 'IWD', //   S&P Dividend Aristocrats → US value (lanzado 2013-10)
+  // SHY: no proxy — historia completa desde 2006-01
 };
 
 // --------------------------------------------------------------------------

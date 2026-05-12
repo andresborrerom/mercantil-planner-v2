@@ -1,5 +1,5 @@
 /**
- * Labels cortos descriptivos en español para los 32 ETFs del dataset.
+ * Labels cortos descriptivos en español para los 37 ETFs del dataset.
  *
  * Consumido por la UI de views (dropdowns y chips) cuando el asesor/cliente
  * condiciona sobre un ETF individual. El formato es:
@@ -13,6 +13,9 @@
  *   - Índices/tipos breves ("S&P 500", "Growth US", "Value US").
  *   - Sin ticker entre paréntesis en el label principal — el dropdown muestra
  *     short; el ticker se puede mostrar como metadata secundaria.
+ *
+ * v2 H1 (2026-05-12): agregados USMV, SPLV, SCHD, NOBL (low-vol / dividendo)
+ * y SHY (cash short Treasury).
  */
 
 import { TICKERS, type Ticker } from '../data/market.generated';
@@ -22,6 +25,7 @@ export type EtfGroup =
   | 'fixedIncome'
   | 'equityBroad'
   | 'equityStyle'
+  | 'equityLowVolDiv'
   | 'equitySector';
 
 export type EtfLabel = {
@@ -34,6 +38,7 @@ export const GROUP_LABELS: Record<EtfGroup, string> = {
   fixedIncome: 'Renta fija global',
   equityBroad: 'Acciones amplias',
   equityStyle: 'Estilos (EEUU)',
+  equityLowVolDiv: 'Baja vol / Dividendo (EEUU)',
   equitySector: 'Sectores globales',
 };
 
@@ -45,6 +50,7 @@ export const GROUP_ORDER: readonly EtfGroup[] = [
   'fixedIncome',
   'equityBroad',
   'equityStyle',
+  'equityLowVolDiv',
   'equitySector',
 ] as const;
 
@@ -56,6 +62,7 @@ export const ETF_LABELS: Readonly<Record<Ticker, EtfLabel>> = {
   // Tesoros US por duración
   BIL: { short: 'Tesoros 1-3m', group: 'treasuries' },
   SPTS: { short: 'Tesoros 1-3y', group: 'treasuries' },
+  SHY: { short: 'Tesoros 1-3y (SHY)', group: 'treasuries' },
   IEI: { short: 'Tesoros 3-7y', group: 'treasuries' },
   IEF: { short: 'Tesoros 7-10y', group: 'treasuries' },
   SPTL: { short: 'Tesoros 20+y', group: 'treasuries' },
@@ -81,6 +88,12 @@ export const ETF_LABELS: Readonly<Record<Ticker, EtfLabel>> = {
   // Estilos US
   IWD: { short: 'Value US', group: 'equityStyle' },
   IWF: { short: 'Growth US', group: 'equityStyle' },
+
+  // Baja volatilidad / Dividendo (EEUU) — v2 H1
+  USMV: { short: 'Baja vol MSCI US', group: 'equityLowVolDiv' },
+  SPLV: { short: 'Baja vol S&P 500', group: 'equityLowVolDiv' },
+  SCHD: { short: 'Dividendo Schwab', group: 'equityLowVolDiv' },
+  NOBL: { short: 'Aristócratas dividendo', group: 'equityLowVolDiv' },
 
   // Sectores globales
   IXN: { short: 'Tecnología', group: 'equitySector' },
@@ -121,6 +134,7 @@ export function tickersByGroup(): Readonly<Record<EtfGroup, readonly Ticker[]>> 
     fixedIncome: [],
     equityBroad: [],
     equityStyle: [],
+    equityLowVolDiv: [],
     equitySector: [],
   };
   for (const ticker of TICKERS) {
