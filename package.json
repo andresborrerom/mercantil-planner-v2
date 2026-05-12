@@ -16,6 +16,7 @@
     "sanity": "tsx scripts/worker-sanity.ts",
     "sanity:views": "tsx scripts/views-sanity.ts",
     "analyze:rf": "tsx scripts/rf-analysis.ts",
+    "tbsc:demo": "tsx scripts/run-tbsc.ts",
     "preview:instructivo": "node scripts/build-instructivo-preview.mjs",
     "test:e2e": "playwright test",
     "test:e2e:ui": "playwright test --ui",

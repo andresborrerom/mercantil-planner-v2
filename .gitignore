@@ -15,3 +15,6 @@ test-results/
 # Outputs regenerables (regenerar con `npm run docs:viewer` y `npm run pdf:samples`)
 research/index.html
 research/samples/
+
+# tbsc:demo output (regenerar con `npm run tbsc:demo`)
+outputs/
