@@ -1,4 +1,19 @@
-# Mercantil Planner
+# Mercantil Planner v2
+
+> **Versión 2.0** — extiende [`mercantil-planner`](https://github.com/andresborrerom/mercantil-planner)
+> (v1) agregando:
+>
+> - **Bullet ladder paramétrico** con iBonds UCITS USD Corporate 2026-2034 y extensiones sintéticas
+> - **Rollover táctico A/B/C** con 5 thresholds calibrables vía sliders en la UI
+> - **Bank loan facility** (LoanEvent) con cascada cash → equity → bullet corto
+> - **Tickers nuevos de renta variable** baja vol / alto dividendo: USMV, SCHD, NOBL, SPLV, SHY
+>
+> v1 queda intocada como herramienta base productiva. v2 está en active development.
+> Origen del trabajo: case study TBSC en [`andresborrerom/estudios-a-la-medida`](https://github.com/andresborrerom/estudios-a-la-medida).
+>
+> **Estado actual:** H0 setup completo. Próximo: H1 — agregar tickers nuevos a data layer.
+
+---
 
 Subproyecto de **Mercantil AWM — Quantitative Research**. Herramienta
 interactiva in-browser (offline, sin Python) para simular el camino
