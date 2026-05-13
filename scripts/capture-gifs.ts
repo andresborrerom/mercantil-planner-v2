@@ -23,7 +23,7 @@ const execAsync = promisify(exec);
 
 const ASSETS_DIR = path.resolve('instructivo', 'assets');
 const VIDEO_DIR = path.resolve('scripts', '.gif-tmp');
-const BASE_URL = 'http://localhost:4173/mercantil-planner/';
+const BASE_URL = 'http://localhost:4173/mercantil-planner-v2/';
 const HEADED = process.env.HEADED === '1';
 const VIEWPORT = { width: 1280, height: 720 };
 
