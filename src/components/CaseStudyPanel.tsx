@@ -203,6 +203,77 @@ function NumInput({ label, value, onChange, min, max, suffix, hint }: NumInputPr
   );
 }
 
+/**
+ * Input pequeño para la tasa override del DPF. Acepta null (sin override).
+ * Usa el mismo patrón draft local que NumInput para permitir edición fluida
+ * (clear con Backspace + retypear sin que se trabe).
+ */
+function DpfRateInput({
+  value,
+  defaultRate,
+  onChange,
+}: {
+  value: number | null; // decimal, e.g., 0.0525 = 5.25%. null = sin override
+  defaultRate: number; // tasa default que se mostraría sin override (para placeholder)
+  onChange: (v: number | null) => void;
+}) {
+  const initialText = value !== null ? formatDraft(value * 100) : '';
+  const [draft, setDraft] = useState<string>(initialText);
+  const lastSyncedRef = useRef<number | null>(value);
+
+  useEffect(() => {
+    if (value !== lastSyncedRef.current) {
+      setDraft(value !== null ? formatDraft(value * 100) : '');
+      lastSyncedRef.current = value;
+    }
+  }, [value]);
+
+  const commit = (txt: string) => {
+    const trimmed = txt.trim();
+    if (trimmed === '') {
+      setDraft('');
+      if (value !== null) {
+        lastSyncedRef.current = null;
+        onChange(null);
+      }
+      return;
+    }
+    const parsed = parseFloat(trimmed);
+    if (!Number.isFinite(parsed) || parsed < 0 || parsed > 50) {
+      // Inválido — revertir al valor previo
+      setDraft(value !== null ? formatDraft(value * 100) : '');
+      return;
+    }
+    setDraft(formatDraft(parsed));
+    const nextDecimal = parsed / 100;
+    if (nextDecimal !== value) {
+      lastSyncedRef.current = nextDecimal;
+      onChange(nextDecimal);
+    }
+  };
+
+  return (
+    <input
+      type="text"
+      inputMode="decimal"
+      placeholder={formatDraft(defaultRate * 100)}
+      value={draft}
+      onChange={(e) => setDraft(e.target.value)}
+      onBlur={(e) => commit(e.target.value)}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter') (e.currentTarget as HTMLInputElement).blur();
+        if (e.key === 'Escape') {
+          setDraft(value !== null ? formatDraft(value * 100) : '');
+          (e.currentTarget as HTMLInputElement).blur();
+        }
+      }}
+      onFocus={(e) => e.currentTarget.select()}
+      className="w-16 px-2 py-1 rounded border border-mercantil-line dark:border-mercantil-dark-line bg-white dark:bg-mercantil-dark-panel text-mercantil-ink dark:text-mercantil-dark-ink text-xs text-right"
+      title="Tasa nominal anual del DPF en t=0. Dejá vacío para usar UST1Y inicial + spread default."
+    />
+  );
+}
+
 // =====================================================================
 // MAIN COMPONENT
 // =====================================================================
@@ -934,24 +1005,10 @@ export default function CaseStudyPanel() {
                 </label>
                 {showDpfBaseline && (
                   <div className="flex items-center gap-1 text-xs">
-                    <input
-                      type="text"
-                      inputMode="decimal"
-                      placeholder={`${(((getYieldBounds('IRX').initial + (getYieldBounds('FVX').initial - getYieldBounds('IRX').initial) * ((1 - 0.25) / (5 - 0.25))) + config.initialSpread) * 100).toFixed(2)}`}
-                      value={config.dpfRateOverride !== null ? (config.dpfRateOverride * 100).toFixed(2) : ''}
-                      onChange={(e) => {
-                        const txt = e.target.value.trim();
-                        if (txt === '') {
-                          setConfig({ dpfRateOverride: null });
-                        } else {
-                          const v = parseFloat(txt);
-                          if (Number.isFinite(v) && v >= 0 && v <= 50) {
-                            setConfig({ dpfRateOverride: v / 100 });
-                          }
-                        }
-                      }}
-                      className="w-16 px-2 py-1 rounded border border-mercantil-line dark:border-mercantil-dark-line bg-white dark:bg-mercantil-dark-panel text-mercantil-ink dark:text-mercantil-dark-ink text-xs text-right"
-                      title="Tasa nominal anual del DPF en t=0. Vacío = usar UST1Y inicial + spread."
+                    <DpfRateInput
+                      value={config.dpfRateOverride}
+                      defaultRate={dpfRateAnnual}
+                      onChange={(v) => setConfig({ dpfRateOverride: v })}
                     />
                     <span className="text-mercantil-slate dark:text-mercantil-dark-slate">% nominal</span>
                     {config.dpfRateOverride !== null && (
