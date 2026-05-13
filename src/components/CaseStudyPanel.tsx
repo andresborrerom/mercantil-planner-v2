@@ -223,6 +223,33 @@ export default function CaseStudyPanel() {
   const clearVariants = useCaseStudyStore((s) => s.clearVariants);
   const [variantLabel, setVariantLabel] = useState('');
 
+  // Sim index para el "camino individual" — una sola simulación de las N para
+  // ilustrar la dinámica concreta de cada estrategia. Se re-samplea al cambiar
+  // result o variantes, o por click del usuario.
+  const [singlePathSimIdx, setSinglePathSimIdx] = useState<number | null>(null);
+  useEffect(() => {
+    if (result) {
+      const minSims = Math.min(
+        result.meta.nSims,
+        ...savedVariants.map((v) => v.result.meta.nSims),
+      );
+      if (singlePathSimIdx === null || singlePathSimIdx >= minSims) {
+        setSinglePathSimIdx(Math.floor(Math.random() * minSims));
+      }
+    }
+    // No resampleamos al cambiar savedVariants si el idx sigue siendo válido —
+    // eso permite "agregar variante y ver el mismo sim path con la nueva línea".
+  }, [result, savedVariants, singlePathSimIdx]);
+
+  const resampleSinglePath = useCallback(() => {
+    if (!result) return;
+    const minSims = Math.min(
+      result.meta.nSims,
+      ...savedVariants.map((v) => v.result.meta.nSims),
+    );
+    setSinglePathSimIdx(Math.floor(Math.random() * minSims));
+  }, [result, savedVariants]);
+
   const [showAdvanced, setShowAdvanced] = useState(false);
   const worker = useArenaWorker();
 
@@ -373,6 +400,73 @@ export default function CaseStudyPanel() {
     const pad = range > 0 ? range * 0.05 : Math.abs(max) * 0.05 || 0.1;
     return [Math.max(0, min - pad), max + pad];
   }, [result, window, wealthChartData, initialAumM, savedVariants]);
+
+  // Data del camino individual: para la sim escogida, extrae netWealth en
+  // cada mes del run actual + cada variante guardada. Pairing implícito:
+  // mismo simIdx funciona porque el bootstrap es seed-deterministic — el
+  // sim s en el run actual usa los mismos bloques históricos que el sim s
+  // de cualquier variante guardada que comparta seed.
+  const singlePathData = useMemo(() => {
+    if (!result || singlePathSimIdx === null) return [];
+    const { horizonMonths, nSims } = result.meta;
+    const Hp1 = horizonMonths + 1;
+    if (singlePathSimIdx >= nSims) return [];
+    type SingleP = {
+      month: number;
+      current: number;
+      deposit: number;
+      [variantKey: string]: number;
+    };
+    const data: SingleP[] = [];
+    let cumDepositUsd = result.stats.initialAum;
+    for (let t = 0; t < Hp1; t++) {
+      const point: SingleP = {
+        month: t,
+        current: result.netWealthPath[singlePathSimIdx * Hp1 + t] / 1e6,
+        deposit: cumDepositUsd / 1e6,
+      };
+      for (const v of savedVariants) {
+        const vH = v.result.meta.horizonMonths;
+        const vHp1 = vH + 1;
+        if (singlePathSimIdx < v.result.meta.nSims && t <= vH) {
+          point[`v_${v.id}`] = v.result.netWealthPath[singlePathSimIdx * vHp1 + t] / 1e6;
+        }
+      }
+      data.push(point);
+      if (t < horizonMonths) {
+        cumDepositUsd += computeMonthlyInflow(t, config.inflowBaseAnnual, config.inflowGrowth);
+      }
+    }
+    return data;
+  }, [result, savedVariants, singlePathSimIdx, config.inflowBaseAnnual, config.inflowGrowth]);
+
+  // Y domain del single path: ajusta solo a la data dentro del window (igual
+  // que el fan chart) considerando current + cada variante.
+  const singlePathYDomain = useMemo<[number, number]>(() => {
+    if (!result || !window || singlePathData.length === 0) return [0, 1];
+    let min = Infinity;
+    let max = -Infinity;
+    for (const p of singlePathData) {
+      if (p.month < window.startMonth || p.month > window.endMonth) continue;
+      if (p.current < min) min = p.current;
+      if (p.current > max) max = p.current;
+      if (p.deposit < min) min = p.deposit;
+      if (p.deposit > max) max = p.deposit;
+      for (const v of savedVariants) {
+        const m = p[`v_${v.id}`];
+        if (typeof m === 'number') {
+          if (m < min) min = m;
+          if (m > max) max = m;
+        }
+      }
+    }
+    if (initialAumM < min) min = initialAumM;
+    if (initialAumM > max) max = initialAumM;
+    if (!Number.isFinite(min) || !Number.isFinite(max)) return [0, 1];
+    const range = max - min;
+    const pad = range > 0 ? range * 0.05 : Math.abs(max) * 0.05 || 0.1;
+    return [Math.max(0, min - pad), max + pad];
+  }, [result, window, singlePathData, initialAumM, savedVariants]);
 
   // Chips de período rápido. 15y y 20y solo se muestran si el horizonte de la
   // simulación los cubre. El chip "Total" queda al final con el horizonte exacto.
@@ -996,6 +1090,122 @@ export default function CaseStudyPanel() {
               </div>
             </div>
           </div>
+
+          {/* Camino individual — una simulación aleatoria (click para resamplear) */}
+          {singlePathSimIdx !== null && singlePathData.length > 0 && (
+            <div className="bg-white dark:bg-mercantil-dark-panel rounded-lg border border-mercantil-line dark:border-mercantil-dark-line p-5">
+              <div className="flex items-center justify-between mb-1">
+                <h3 className="text-sm uppercase tracking-wider text-mercantil-slate dark:text-mercantil-dark-slate font-medium">
+                  Camino individual — simulación #{singlePathSimIdx + 1} de {result.meta.nSims}
+                </h3>
+                <button
+                  onClick={resampleSinglePath}
+                  className="px-3 py-1 text-xs rounded bg-mercantil-orange text-white hover:bg-mercantil-orange/90"
+                >
+                  🎲 Otra simulación aleatoria
+                </button>
+              </div>
+              <p className="text-xs text-mercantil-slate dark:text-mercantil-dark-slate mb-3">
+                Una de las {result.meta.nSims} trayectorias simuladas — muestra la <strong>dinámica concreta</strong> que las
+                medianas esconden: drawdowns puntuales, recuperaciones, el momento exacto en que un préstamo o un evento
+                de rollover impacta el AUM. <strong>Click en "Otra simulación"</strong> para muestrear otra al azar.
+                {savedVariants.length > 0 && (
+                  <> Si tenés variantes guardadas, todas se evalúan en el <strong>mismo</strong> camino del bootstrap
+                  (paired) — la diferencia que ves entre líneas es solo de config, no de azar.</>
+                )}
+              </p>
+              <div className="h-72">
+                <ResponsiveContainer width="100%" height="100%">
+                  <ComposedChart
+                    data={singlePathData}
+                    margin={{ top: 8, right: 16, left: 0, bottom: 4 }}
+                    onClick={resampleSinglePath}
+                    style={{ cursor: 'pointer' }}
+                  >
+                    <CartesianGrid strokeDasharray="3 3" opacity={0.3} />
+                    <XAxis
+                      dataKey="month"
+                      type="number"
+                      domain={window ? [window.startMonth, window.endMonth] : [0, result.meta.horizonMonths]}
+                      allowDataOverflow
+                      ticks={xTicks}
+                      tickFormatter={(v: number) => {
+                        const y = v / 12;
+                        return Number.isInteger(y) ? `${y}y` : `${y.toFixed(1)}y`;
+                      }}
+                      fontSize={11}
+                    />
+                    <YAxis
+                      width={64}
+                      domain={singlePathYDomain}
+                      allowDataOverflow
+                      tickFormatter={(v: number) => v < 1 ? `$${(v * 1000).toFixed(0)}k` : `$${v.toFixed(1)}M`}
+                      fontSize={11}
+                    />
+                    <Tooltip
+                      formatter={(v, name) => {
+                        const n = typeof v === 'number' ? v : 0;
+                        return [`$${n.toFixed(2)}M`, name];
+                      }}
+                      labelFormatter={(v) => {
+                        const m = typeof v === 'number' ? v : 0;
+                        return `Mes ${m} (año ${(m / 12).toFixed(1)})`;
+                      }}
+                    />
+                    <Legend
+                      verticalAlign="bottom"
+                      iconType="line"
+                      wrapperStyle={{ fontSize: 11, paddingTop: 4 }}
+                    />
+                    <Line
+                      type="monotone"
+                      dataKey="current"
+                      stroke="#F58220"
+                      strokeWidth={2}
+                      dot={false}
+                      name="Run actual"
+                      isAnimationActive={false}
+                    />
+                    {savedVariants.map((v) => (
+                      <Line
+                        key={v.id}
+                        type="monotone"
+                        dataKey={`v_${v.id}`}
+                        stroke={v.color}
+                        strokeWidth={1.75}
+                        dot={false}
+                        name={v.label}
+                        isAnimationActive={false}
+                        connectNulls
+                      />
+                    ))}
+                    <Line
+                      type="stepAfter"
+                      dataKey="deposit"
+                      stroke="#3a8a4e"
+                      strokeWidth={1.5}
+                      strokeDasharray="4 4"
+                      dot={false}
+                      name="Capital + aportes acumulados"
+                      isAnimationActive={false}
+                    />
+                    <ReferenceLine
+                      y={initialAumM}
+                      stroke="#888"
+                      strokeDasharray="2 4"
+                      strokeWidth={1}
+                      label={{ value: `Capital inicial`, position: 'insideTopLeft', fontSize: 10, fill: '#888' }}
+                    />
+                  </ComposedChart>
+                </ResponsiveContainer>
+              </div>
+              <p className="text-[11px] text-mercantil-slate/70 dark:text-mercantil-dark-slate/70 mt-2 italic">
+                Tip: si tenés un préstamo activado y ves una caída brusca alrededor del mes de disparo, ese es el
+                pago inicial chocando contra cash. Si la caída se prolonga, está habiendo venta forzada de equity
+                o bullets. El camino individual te muestra esto que las medianas suavizan.
+              </p>
+            </div>
+          )}
 
           {/* Sleeve evolution */}
           <div className="bg-white dark:bg-mercantil-dark-panel rounded-lg border border-mercantil-line dark:border-mercantil-dark-line p-5">

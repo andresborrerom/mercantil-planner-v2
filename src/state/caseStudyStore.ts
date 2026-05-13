@@ -119,8 +119,17 @@ export type SavedVariant = {
 /** Máximo de variantes guardadas simultáneamente (por memoria y legibilidad). */
 export const MAX_SAVED_VARIANTS = 4;
 
-/** Colores para overlays. Cyclán cuando se guardan variantes. */
-const VARIANT_COLORS = ['#3a8a4e', '#7c3aed', '#0d9488', '#dc2626'] as const;
+/**
+ * Colores para overlays de variantes. Evitamos:
+ *  - Verde (#3a8a4e): reservado para la línea "Capital + aportes acumulados"
+ *  - Naranja (#F58220): reservado para la línea "Mediana / Run actual"
+ *  - Gris (#888): reservado para "Capital inicial"
+ *  - Azul (#003566): reservado para las bandas p5-p95 / p25-p75
+ *
+ * Quedan: púrpura, teal, magenta, rojo. Suficiente contraste entre ellos
+ * y con los colores reservados.
+ */
+const VARIANT_COLORS = ['#7c3aed', '#0d9488', '#db2777', '#dc2626'] as const;
 
 type CaseStudyState = {
   config: CaseStudyConfig;
