@@ -67,15 +67,86 @@ El `FanChart.tsx` del Comparador A/B es el **patrón canónico** para charts de 
 
 El `CaseStudyPanel` ya tiene este patrón. **Cuando crees el próximo case study, reusá `CaseStudyPanel` como referencia, no `FanChart` directamente** — FanChart es más complejo porque maneja A vs B + views condicionales.
 
-### 3. Sleeves como concepto operativo
+#### 2b. AUM vs net wealth en el chart (decisión semántica importante)
+
+El chart de proyección patrimonial debe mostrar **`aumPath`** (AUM gross del fondo), **NO** `netWealthPath` (= AUM − loan balance).
+
+**Razón conceptual**: el préstamo del modelo es *extra-portfolio* — el principal NO entra al fondo (va a gastos operativos del cliente, e.g., el colegio). El fondo solo *sirve* la deuda con sus flujos naturales (cash → equity → bullet en cascada). Si graficás `netWealthPath`, vas a ver un **brinco hacia abajo el día del desembolso** del préstamo, equivalente al principal completo. Eso es contablemente válido pero **conceptualmente engañoso**: el fondo no perdió esa plata, esa plata nunca pasó por el fondo. Es deuda del cliente, no del fondo.
+
+Lo que la junta SÍ debería ver en el chart con préstamo:
+- Crecimiento del AUM marginalmente más lento durante el plazo del préstamo (las cuotas mensuales consumen flujo natural)
+- En sims malos, eventualmente caídas localizadas si hay ventas forzadas de equity / bullets
+
+Si en algún momento se necesita mostrar el endeudamiento explícito (e.g., un panel de "estado financiero consolidado del cliente"), agregá una serie aparte para `loanBalancePath`, no contamines la línea de AUM con la resta.
+
+**Para stats**: mantené ambos `finalAumMed` y `finalNetMed` en el stats card. El primero responde "cómo le fue al fondo" y el segundo "cuánto debe el cliente al final" — son preguntas distintas.
+
+### 3. Inputs numéricos: SIEMPRE draft local
+
+Cualquier `<input>` numérico que viva en un componente controlado por Zustand store **debe usar el patrón draft local**, NO ser puramente controlado por el valor del store.
+
+**Bug clásico** (ya cometido 2 veces en v2): input que toma `value={config.someValue}` y propaga vía `onChange={(e) => setConfig({ someValue: parseFloat(e.target.value) })}`. Síntomas:
+- `Ctrl+A → Backspace` no limpia el input (el store se mantiene en el valor previo, React re-renderea el viejo valor)
+- Tipear "5.25" digit-by-digit se traba: después de "5" el store actualiza a 5, formato a "5.00", y el usuario no puede agregar ".25" porque el draft se sobreescribe
+- Estados intermedios ("", "-", "5.") rechazados por validación, perdiendo lo que el usuario está tipeando
+
+**Patrón correcto** (ver `NumInput` y `DpfRateInput` en `src/components/CaseStudyPanel.tsx`):
+
+```tsx
+function MyNumInput({ value, onChange, min, max }: Props) {
+  const [draft, setDraft] = useState<string>(formatDraft(value));
+  const lastSyncedRef = useRef(value);
+
+  useEffect(() => {
+    if (value !== lastSyncedRef.current) {
+      setDraft(formatDraft(value));
+      lastSyncedRef.current = value;
+    }
+  }, [value]);
+
+  const commit = (txt: string) => {
+    const parsed = parseFloat(txt.trim());
+    if (!Number.isFinite(parsed)) { setDraft(formatDraft(value)); return; }
+    const clamped = Math.max(min, Math.min(max, parsed));
+    setDraft(formatDraft(clamped));
+    if (clamped !== value) { lastSyncedRef.current = clamped; onChange(clamped); }
+  };
+
+  return (
+    <input
+      type="text"               // NO type="number"
+      inputMode="decimal"        // hint de teclado mobile
+      value={draft}
+      onChange={(e) => setDraft(e.target.value)}  // SOLO draft, NO propagar
+      onBlur={(e) => commit(e.target.value)}      // commit en blur
+      onKeyDown={(e) => {
+        if (e.key === 'Enter') (e.currentTarget as HTMLInputElement).blur();
+        if (e.key === 'Escape') { setDraft(formatDraft(value)); (e.currentTarget as HTMLInputElement).blur(); }
+      }}
+      onFocus={(e) => e.currentTarget.select()}   // auto-select para reemplazo rápido
+    />
+  );
+}
+```
+
+Reglas:
+- `type="text"` con `inputMode="decimal"`, NUNCA `type="number"` (UX nativo se rompe en mobile, además el spinner choca con la edición)
+- Estado local `draft: string` permite intermedios sin sobreescritura
+- Propagación al padre SOLO en `blur` o `Enter`. `Escape` revierte
+- Auto-select en focus → tipear arriba reemplaza sin Backspace previo
+- `useRef` para evitar loops infinitos entre prop y state
+
+**Aplica a TODOS los inputs numéricos del v2.** Si ves un `<input type="number" value={cfg.x} onChange={(e) => set(cfg.x = parseFloat(e.target.value))}>` en código nuevo, es un bug — refactor inmediato.
+
+### 4. Sleeves como concepto operativo
 
 Un **sleeve** es un subconjunto del portafolio con su propia regla operativa, no solo una asset class. Los outputs del modelo (ventas forzadas, eventos, rebalance) operan **a nivel sleeve**. El `SleevesDetailPanel` dentro de `CaseStudyPanel.tsx` documenta los 3 sleeves (Bullets / Equity / Cash) con detalle de diversificación interna — replicalo para case studies con composiciones diferentes (mantené el mismo nivel de detalle).
 
-### 4. Paridad Python como contrato
+### 5. Paridad Python como contrato
 
 Cuando portes un motor nuevo de Python a TS, **siempre escribe el dump-script Python equivalente** que genera fixtures bit-a-bit en `tests/fixtures/*.json`. El patrón está en `code/dump_*_parity.py` del repo `estudios-a-la-medida`. Si no podés escribir paridad bit-a-bit (por diferencias de PRNG o block sampling), al menos hacé un script de comparación estadística (ver `scripts/run-tbsc.ts`) que muestre divergencias en medianas/percentiles.
 
-### 5. `tsc -b` como source-of-truth
+### 6. `tsc -b` como source-of-truth
 
 El typecheck local con `tsc --noEmit` NO es suficiente: el build de CI corre `tsc -b` (mode project references) que valida `noUnusedLocals: true` y otras reglas más estrictas. **Antes de cada commit corré**:
 
@@ -86,7 +157,7 @@ npx vitest run  # 570/570 debe pasar
 
 Si rompés cualquiera de los 2, no pushees. Las regresiones de noUnusedLocals ya rompieron Pages una vez (commit 7cced5d → 4 builds rotos hasta e637892).
 
-### 6. Push a producción con token bypass
+### 7. Push a producción con token bypass
 
 Credential Manager de Windows tiende a colgarse cuando trato de pushear. El patrón confiable está documentado en `~/.claude/projects/.../memory/reference_github_automation.md`:
 

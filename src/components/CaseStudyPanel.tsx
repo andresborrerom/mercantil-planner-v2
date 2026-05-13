@@ -401,7 +401,7 @@ export default function CaseStudyPanel() {
       const col = new Float64Array(nSims);
       const series: number[] = [];
       for (let t = 0; t < Hp1; t++) {
-        for (let s = 0; s < nSims; s++) col[s] = v.result.netWealthPath[s * Hp1 + t];
+        for (let s = 0; s < nSims; s++) col[s] = v.result.aumPath[s * Hp1 + t];
         const sorted = Float64Array.from(col);
         sorted.sort();
         series.push(sorted[Math.floor(0.5 * (nSims - 1))] / 1e6);
@@ -428,7 +428,11 @@ export default function CaseStudyPanel() {
     const { nSims, horizonMonths } = result.meta;
     const Hp1 = horizonMonths + 1;
     const ps = [0.05, 0.25, 0.5, 0.75, 0.95];
-    const netPct = pctPath(result.netWealthPath, nSims, Hp1, ps);
+    // AUM gross del fondo — el préstamo NO se descuenta del path (es deuda
+    // extra-portfolio que el fondo sirve mensualmente desde sus flujos, no
+    // un retiro de capital). El loan se manifiesta como menor crecimiento,
+    // no como un brinco al desembolso.
+    const netPct = pctPath(result.aumPath, nSims, Hp1, ps);
     type Point = {
       month: number;
       p50: number;
@@ -560,7 +564,8 @@ export default function CaseStudyPanel() {
     for (let t = 0; t < Hp1; t++) {
       const point: SingleP = {
         month: t,
-        current: result.netWealthPath[singlePathSimIdx * Hp1 + t] / 1e6,
+        // AUM gross (ver comentario en wealthChartData)
+        current: result.aumPath[singlePathSimIdx * Hp1 + t] / 1e6,
         deposit: cumDepositUsd / 1e6,
       };
       // En camino individual, DPF usa el path de ESE sim específico (no la
@@ -572,7 +577,7 @@ export default function CaseStudyPanel() {
         const vH = v.result.meta.horizonMonths;
         const vHp1 = vH + 1;
         if (singlePathSimIdx < v.result.meta.nSims && t <= vH) {
-          point[`v_${v.id}`] = v.result.netWealthPath[singlePathSimIdx * vHp1 + t] / 1e6;
+          point[`v_${v.id}`] = v.result.aumPath[singlePathSimIdx * vHp1 + t] / 1e6;
         }
       }
       data.push(point);
@@ -999,7 +1004,7 @@ export default function CaseStudyPanel() {
                     className="accent-mercantil-orange h-3.5 w-3.5"
                   />
                   <span className="flex items-center gap-1">
-                    <span className="inline-block w-3 h-[2px] align-middle" style={{ background: '#64748b' }} />
+                    <span className="inline-block w-3 h-[2px] align-middle" style={{ background: '#b45309' }} />
                     DPF1Y tasa inicial
                   </span>
                 </label>
@@ -1103,13 +1108,18 @@ export default function CaseStudyPanel() {
           {/* Wealth fan chart */}
           <div className="bg-white dark:bg-mercantil-dark-panel rounded-lg border border-mercantil-line dark:border-mercantil-dark-line p-5">
             <h3 className="text-sm uppercase tracking-wider text-mercantil-slate dark:text-mercantil-dark-slate font-medium mb-1">
-              Net wealth path — percentiles ($ millones)
+              AUM del fondo — percentiles ($ millones)
             </h3>
             <p className="text-xs text-mercantil-slate dark:text-mercantil-dark-slate mb-3">
               Línea naranja = mediana sobre las {result.meta.nSims} simulaciones. Bandas azules = 50% (p25–p75) y 90%
               (p5–p95) de los caminos posibles. La línea gris punteada es el capital inicial; la verde es capital + aportes
               acumulados (el piso de "solo ahorrar sin invertir"). La propuesta agrega valor si el camino mediano queda
               por encima de la verde.
+              {config.loanEnabled && (
+                <> El <strong>AUM del fondo</strong> es bruto: el préstamo (extra-portfolio) NO se descuenta de
+                este path. El fondo solo paga las cuotas mensuales (cash → equity → bullet en cascada), por eso
+                no hay brincos visibles al desembolso — solo crecimiento marginalmente más lento durante el plazo.</>
+              )}
               {savedVariants.length > 0 && (
                 <> Las líneas de colores son medianas de variantes guardadas para comparar.</>
               )}
@@ -1219,8 +1229,8 @@ export default function CaseStudyPanel() {
                         type="monotone"
                         dataKey="dpfBand5095"
                         stroke="none"
-                        fill="#64748b"
-                        fillOpacity={0.08}
+                        fill="#b45309"
+                        fillOpacity={0.10}
                         name="DPF p5–p95"
                         isAnimationActive={false}
                       />
@@ -1228,15 +1238,15 @@ export default function CaseStudyPanel() {
                         type="monotone"
                         dataKey="dpfBand2575"
                         stroke="none"
-                        fill="#64748b"
-                        fillOpacity={0.18}
+                        fill="#b45309"
+                        fillOpacity={0.22}
                         name="DPF p25–p75"
                         isAnimationActive={false}
                       />
                       <Line
                         type="monotone"
                         dataKey="dpf"
-                        stroke="#64748b"
+                        stroke="#b45309"
                         strokeWidth={1.5}
                         strokeDasharray="2 6"
                         dot={false}
@@ -1414,7 +1424,7 @@ export default function CaseStudyPanel() {
                       <Line
                         type="monotone"
                         dataKey="dpf"
-                        stroke="#64748b"
+                        stroke="#b45309"
                         strokeWidth={1.5}
                         strokeDasharray="2 6"
                         dot={false}
