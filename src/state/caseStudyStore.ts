@@ -121,6 +121,7 @@ export function configToJobInput(config: CaseStudyConfig): ArenaJobInput {
     cashBandUpper: config.cashBandUpper,
     dpfRateOverride: config.dpfRateOverride,
     maxBulletYears: config.maxBulletYearsEnabled ? config.maxBulletYears : null,
+    enforceMonthlyEquityCap: true,
   };
 }
 

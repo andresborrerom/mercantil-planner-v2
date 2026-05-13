@@ -129,6 +129,15 @@ export type CashFlowStepLog = {
   nActiveLoans?: number;
   rebalancedExcessMed?: number;
   nSimsRebalanced?: number;
+  /**
+   * Diagnóstico del paso 5 (cap mensual de equity). Mediana del monto
+   * vendido de equity a bullets cuando equity > eqtyMax después del
+   * rebalanceo de cash. Solo presente si enforceMonthlyEquityCap=true
+   * y al menos 1 sim tuvo overshoot.
+   */
+  equityCapSoldMed?: number;
+  /** Cantidad de sims donde se vendió equity por el cap mensual. */
+  nSimsEquityCapSold?: number;
 };
 
 // =====================================================================
@@ -325,6 +334,20 @@ export type CashFlowStepInput = {
    * array length nSims, varía por sim. Default 0.
    */
   bulletShortestIdx?: number | ArrayLike<number>;
+  /**
+   * Si true, el rebalanceo del exceso de cash redirige la parte de equity
+   * cuando equity ya excede `eqtyMax` (los aportes diluyen hacia bullets en
+   * vez de mantener el peso estratégico de equity). Adicionalmente, después
+   * del rebalanceo se verifica el peso de equity y, si sigue por encima
+   * del cap, se vende exceso a bullets (proporcional al peso vivo).
+   *
+   * Default false para preservar paridad con el motor Python actual. El
+   * caso de estudio del UI lo activa para que la banda dura del rollover
+   * se respete mensualmente, no solo en eventos de vencimiento.
+   */
+  enforceMonthlyEquityCap?: boolean;
+  /** Cap duro del peso de equity. Requerido si enforceMonthlyEquityCap=true. */
+  eqtyMax?: number;
 };
 
 /**
@@ -497,7 +520,19 @@ export function cashflowStep(input: CashFlowStepInput): CashFlowStepLog {
   // 4. Rebalanceo del exceso de cash sobre cashBandUpper.
   //    Solo validamos planAlloc.cash si hay al menos una sim que necesite
   //    rebalance (matchea Python: el check está dentro de `if over.any():`).
+  //    Si enforceMonthlyEquityCap=true, la porción de equity del exceso de
+  //    cash se capa al headroom disponible (eqtyMax - peso vivo), de modo
+  //    que los aportes "diluyen" hacia bullets en vez de mantener equity
+  //    overweight.
   // -----------------------------------------------------------------
+  const enforceCap = input.enforceMonthlyEquityCap === true;
+  const eqtyMax = input.eqtyMax;
+  if (enforceCap && (eqtyMax === undefined || eqtyMax < 0 || eqtyMax > 1)) {
+    throw new Error(
+      `cashflowStep: enforceMonthlyEquityCap=true requiere eqtyMax en [0,1], recibido ${eqtyMax}`,
+    );
+  }
+
   const totals = totalAum(state);
   const overSims: number[] = [];
   for (let s = 0; s < nSims; s++) {
@@ -505,47 +540,101 @@ export function cashflowStep(input: CashFlowStepInput): CashFlowStepLog {
     const cashShare = state.cashAum[s] / safeTotal;
     if (cashShare > cashBandUpper) overSims.push(s);
   }
-  if (overSims.length === 0) {
-    return log;
-  }
-  const nonCash = 1.0 - planAlloc.cash;
-  if (nonCash <= 0) {
-    throw new Error(
-      `cashflowStep: planAlloc.cash=${planAlloc.cash} no deja espacio para bullets/equity`,
-    );
-  }
-  const bulletShareNorm = planAlloc.bullets / nonCash;
-  const equityShareNorm = planAlloc.equity / nonCash;
 
-  let nRebalanced = 0;
-  const excessLog: number[] = [];
-  for (const s of overSims) {
-    const excess = state.cashAum[s] - cashBandUpper * totals[s];
-    const toBulletsTotal = excess * bulletShareNorm;
-    const toEquity = excess * equityShareNorm;
-
-    // Distribuir bullets proporcional al peso vivo
-    const bOff = s * nBullets;
-    let bSum = 0;
-    for (let b = 0; b < nBullets; b++) bSum += state.bulletAums[bOff + b];
-    if (bSum > 0) {
-      for (let b = 0; b < nBullets; b++) {
-        const prop = state.bulletAums[bOff + b] / bSum;
-        state.bulletAums[bOff + b] += prop * toBulletsTotal;
-      }
-    } else {
-      // Si todos los bullets están en 0, repartir equal-weight
-      const each = toBulletsTotal / nBullets;
-      for (let b = 0; b < nBullets; b++) state.bulletAums[bOff + b] += each;
+  if (overSims.length > 0) {
+    const nonCash = 1.0 - planAlloc.cash;
+    if (nonCash <= 0) {
+      throw new Error(
+        `cashflowStep: planAlloc.cash=${planAlloc.cash} no deja espacio para bullets/equity`,
+      );
     }
-    state.equityAum[s] += toEquity;
-    state.cashAum[s] -= excess;
+    const bulletShareNorm = planAlloc.bullets / nonCash;
+    const equityShareNorm = planAlloc.equity / nonCash;
 
-    excessLog.push(excess);
-    nRebalanced++;
+    let nRebalanced = 0;
+    const excessLog: number[] = [];
+    for (const s of overSims) {
+      const excess = state.cashAum[s] - cashBandUpper * totals[s];
+      let toEquity = excess * equityShareNorm;
+      let toBulletsTotal = excess * bulletShareNorm;
+
+      if (enforceCap) {
+        // Cap la porción a equity al headroom restante (eqtyMaxAum − peso vivo).
+        // Lo que no entra a equity se reasigna a bullets, así el exceso de
+        // cash se consume entero sin overshoot del cap.
+        const eqtyMaxAum = (eqtyMax as number) * totals[s];
+        const headroom = Math.max(0, eqtyMaxAum - state.equityAum[s]);
+        if (toEquity > headroom) {
+          const overflow = toEquity - headroom;
+          toEquity = headroom;
+          toBulletsTotal += overflow;
+        }
+      }
+
+      // Distribuir bullets proporcional al peso vivo
+      const bOff = s * nBullets;
+      let bSum = 0;
+      for (let b = 0; b < nBullets; b++) bSum += state.bulletAums[bOff + b];
+      if (bSum > 0) {
+        for (let b = 0; b < nBullets; b++) {
+          const prop = state.bulletAums[bOff + b] / bSum;
+          state.bulletAums[bOff + b] += prop * toBulletsTotal;
+        }
+      } else {
+        // Si todos los bullets están en 0, repartir equal-weight
+        const each = toBulletsTotal / nBullets;
+        for (let b = 0; b < nBullets; b++) state.bulletAums[bOff + b] += each;
+      }
+      state.equityAum[s] += toEquity;
+      state.cashAum[s] -= excess;
+
+      excessLog.push(excess);
+      nRebalanced++;
+    }
+    log.rebalancedExcessMed = median(excessLog);
+    log.nSimsRebalanced = nRebalanced;
   }
-  log.rebalancedExcessMed = median(excessLog);
-  log.nSimsRebalanced = nRebalanced;
+
+  // -----------------------------------------------------------------
+  // 5. Enforcement final del cap de equity (solo si enforceMonthlyEquityCap=true).
+  //    Si después del rebalanceo del paso 4 el peso de equity sigue por
+  //    encima del cap (drift de mercado mes a mes que el aporte solo no
+  //    alcanzó a diluir), se vende el excedente a bullets, proporcional al
+  //    peso vivo. Si no hay bullets vivos (raro), va a cash.
+  // -----------------------------------------------------------------
+  if (enforceCap) {
+    const totals2 = totalAum(state);
+    let nForcedSold = 0;
+    const forcedSoldLog: number[] = [];
+    for (let s = 0; s < nSims; s++) {
+      const safeTotal = totals2[s] > 1e-9 ? totals2[s] : 1e-9;
+      const eqtyShare = state.equityAum[s] / safeTotal;
+      if (eqtyShare > (eqtyMax as number) + 1e-9) {
+        const eqtyMaxAum = (eqtyMax as number) * totals2[s];
+        const sellAmount = state.equityAum[s] - eqtyMaxAum;
+        state.equityAum[s] = eqtyMaxAum;
+
+        const bOff = s * nBullets;
+        let bSum = 0;
+        for (let b = 0; b < nBullets; b++) bSum += state.bulletAums[bOff + b];
+        if (bSum > 0) {
+          for (let b = 0; b < nBullets; b++) {
+            const prop = state.bulletAums[bOff + b] / bSum;
+            state.bulletAums[bOff + b] += prop * sellAmount;
+          }
+        } else {
+          state.cashAum[s] += sellAmount;
+        }
+
+        forcedSoldLog.push(sellAmount);
+        nForcedSold++;
+      }
+    }
+    if (nForcedSold > 0) {
+      log.equityCapSoldMed = median(forcedSoldLog);
+      log.nSimsEquityCapSold = nForcedSold;
+    }
+  }
 
   return log;
 }

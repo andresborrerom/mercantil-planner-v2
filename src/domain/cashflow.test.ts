@@ -460,3 +460,139 @@ describe('cashflowStep — trigger LoanEvent', () => {
     expect(state.cumInterestPaid[0]).toBeCloseTo(firstInterest, 2);
   });
 });
+
+// =====================================================================
+// Cap mensual de equity (enforceMonthlyEquityCap)
+// =====================================================================
+describe('cashflowStep — enforceMonthlyEquityCap', () => {
+  it('drift sin inflow: vende exceso de equity a bullets', () => {
+    // Setup: equity ya está por encima del cap por drift de mercado de
+    // meses previos. No hay inflow ni rebalanceo de cash en este mes
+    // (porque cashShare < 5%). El cap mensual debe forzar la venta.
+    const nSims = 1;
+    const state = initializeState({
+      nSims,
+      initialCashAum: 30_000,     // 3% del total — no dispara rebalance de cash
+      initialEquityAum: 600_000,  // 60% del total — sobre el cap 50%
+      initialBulletAums: [200_000, 170_000], // 37%
+      nBullets: 2,
+    });
+    const totalBefore = totalAum(state)[0];
+    const market: CashFlowMarket = { yStateT: flatCurveYstate(nSims, 0.04) };
+    const planAlloc: PlanAlloc = { bullets: 0.65, equity: 0.30, cash: 0.05 };
+
+    cashflowStep({
+      t: 0,
+      state,
+      planAlloc,
+      loanEvent: null,
+      market,
+      inflowBaseAnnual: 0,
+      cashBandUpper: 0.05,
+      enforceMonthlyEquityCap: true,
+      eqtyMax: 0.50,
+    });
+
+    const totalAfter = totalAum(state)[0];
+    // Total preservado (la venta es interna, no sale plata del portafolio)
+    expect(totalAfter).toBeCloseTo(totalBefore, 2);
+    // Equity exactamente en el cap
+    expect(state.equityAum[0] / totalAfter).toBeCloseTo(0.50, 6);
+    // Exceso ($100k = 60% − 50%) repartido a bullets proporcional al peso vivo
+    const bSum = state.bulletAums[0] + state.bulletAums[1];
+    expect(bSum).toBeCloseTo(200_000 + 170_000 + 100_000, 2);
+    // Proporción mantenida: bullet 0 era 200/(200+170) ≈ 0.5405 del bSum vivo
+    expect(state.bulletAums[0] / bSum).toBeCloseTo(200_000 / 370_000, 6);
+  });
+
+  it('inflow diluye sin necesidad de venta cuando el aporte alcanza', () => {
+    // Setup: equity overweight pero por poco. El inflow del mes redirige
+    // su porción de equity hacia bullets, así equity termina exactamente en
+    // el cap sin necesidad de vender.
+    const nSims = 1;
+    const state = initializeState({
+      nSims,
+      initialCashAum: 100_000,
+      initialEquityAum: 510_000,   // 51% del millón — sobre el cap por 1pt
+      initialBulletAums: [195_000, 195_000],
+      nBullets: 2,
+    });
+    const market: CashFlowMarket = { yStateT: flatCurveYstate(nSims, 0.04) };
+    const planAlloc: PlanAlloc = { bullets: 0.65, equity: 0.30, cash: 0.05 };
+
+    cashflowStep({
+      t: 0,
+      state,
+      planAlloc,
+      loanEvent: null,
+      market,
+      inflowBaseAnnual: 250_000,
+      cashBandUpper: 0.05,
+      enforceMonthlyEquityCap: true,
+      eqtyMax: 0.50,
+    });
+
+    const totalAfter = totalAum(state)[0];
+    // Equity en el cap (o ligeramente por debajo, si la dilución sobró)
+    expect(state.equityAum[0] / totalAfter).toBeLessThanOrEqual(0.50 + 1e-9);
+    // No debió haber venta forzada por cap — solo redistribución del inflow.
+    // Si la dilución alcanza, equityAum no decrece respecto al inicial 510k.
+    expect(state.equityAum[0]).toBeGreaterThanOrEqual(510_000 - 1e-6);
+  });
+
+  it('default OFF: comportamiento histórico, equity puede superar el cap', () => {
+    // Sin pasar el flag, el cap mensual no se aplica y la sim termina con
+    // equity > 50% (es el bug que queríamos arreglar — confirmado acá).
+    const nSims = 1;
+    const state = initializeState({
+      nSims,
+      initialCashAum: 30_000,
+      initialEquityAum: 600_000,
+      initialBulletAums: [370_000],
+      nBullets: 1,
+    });
+    const market: CashFlowMarket = { yStateT: flatCurveYstate(nSims, 0.04) };
+    const planAlloc: PlanAlloc = { bullets: 0.65, equity: 0.30, cash: 0.05 };
+
+    cashflowStep({
+      t: 0,
+      state,
+      planAlloc,
+      loanEvent: null,
+      market,
+      inflowBaseAnnual: 0,
+      cashBandUpper: 0.05,
+      // enforceMonthlyEquityCap no pasado — default false
+    });
+
+    const total = totalAum(state)[0];
+    expect(state.equityAum[0] / total).toBeCloseTo(0.60, 6); // sigue overweight
+  });
+
+  it('enforce=true sin eqtyMax lanza error explícito', () => {
+    const nSims = 1;
+    const state = initializeState({
+      nSims,
+      initialCashAum: 30_000,
+      initialEquityAum: 600_000,
+      initialBulletAums: [370_000],
+      nBullets: 1,
+    });
+    const market: CashFlowMarket = { yStateT: flatCurveYstate(nSims, 0.04) };
+    const planAlloc: PlanAlloc = { bullets: 0.65, equity: 0.30, cash: 0.05 };
+
+    expect(() =>
+      cashflowStep({
+        t: 0,
+        state,
+        planAlloc,
+        loanEvent: null,
+        market,
+        inflowBaseAnnual: 0,
+        cashBandUpper: 0.05,
+        enforceMonthlyEquityCap: true,
+        // eqtyMax intencionalmente omitido
+      }),
+    ).toThrow(/eqtyMax/);
+  });
+});

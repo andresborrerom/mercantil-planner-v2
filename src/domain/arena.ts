@@ -74,6 +74,14 @@ export type ArenaConfig = {
    * renovaciones futuras.
    */
   dpfRateOverride?: number | null;
+  /**
+   * Si true, el cashflowStep enforza el cap de equity (`plan.eqtyMax`)
+   * cada mes: el rebalanceo del exceso de cash diluye hacia bullets
+   * cuando equity ya está overweight, y si el peso vivo sigue arriba
+   * del cap después del rebalanceo, se vende exceso a bullets.
+   * Default false para preservar paridad con el motor Python actual.
+   */
+  enforceMonthlyEquityCap?: boolean;
 };
 
 /**
@@ -466,6 +474,8 @@ export function runArena(
       inflowGrowth,
       cashBandUpper,
       bulletShortestIdx: shortestIdxPath[t],
+      enforceMonthlyEquityCap: config.enforceMonthlyEquityCap === true,
+      eqtyMax: plan.eqtyMax,
     });
 
     // 3. Procesar eventos de maturity (maturity_month == t+1)

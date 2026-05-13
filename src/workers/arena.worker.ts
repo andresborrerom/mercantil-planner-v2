@@ -114,6 +114,17 @@ export type ArenaJobInput = {
    * con un lineup explícito.
    */
   maxBulletYears?: number | null;
+
+  // ---- Cap mensual de equity ----
+  /**
+   * Si true (default en este worker), cashflowStep enforza la banda dura
+   * `eqtyMax` cada mes: el rebalanceo del exceso de cash diluye hacia
+   * bullets cuando equity está overweight, y vende exceso si el drift
+   * de mercado lo empuja por encima del cap. Si false, el cap solo se
+   * respeta en eventos de vencimiento de bullets (comportamiento
+   * histórico, preserva paridad con el motor Python).
+   */
+  enforceMonthlyEquityCap?: boolean;
 };
 
 export type ArenaJobOutput = {
@@ -311,6 +322,10 @@ function executeJob(id: string, payload: ArenaJobInput): {
     cashBandUpper: payload.cashBandUpper ?? 0.05,
     rolloverEnabled: payload.rolloverEnabled ?? true,
     dpfRateOverride: payload.dpfRateOverride ?? null,
+    // Default true en este worker: el caso de estudio quiere que la banda
+    // dura del rollover se respete mensualmente. Las parity tests con
+    // motor Python pasan false explícito para preservar comportamiento.
+    enforceMonthlyEquityCap: payload.enforceMonthlyEquityCap ?? true,
   };
   const arenaOut = runArena(config, market);
   const tArena1 =
