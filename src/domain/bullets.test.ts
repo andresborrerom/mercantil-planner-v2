@@ -207,4 +207,28 @@ describe('defaultBulletLineup', () => {
     expect(names).toContain('ID35S');
     expect(names).toContain('ID36S');
   });
+
+  it('maxYears=4 filtra a vintages ≤4y (ID26-ID29)', () => {
+    const lineup = defaultBulletLineup(new Date(2026, 4, 7), 4);
+    expect(lineup).toHaveLength(4);
+    expect(lineup.map(b => b.name)).toEqual(['ID26', 'ID27', 'ID28', 'ID29']);
+    for (const b of lineup) {
+      expect(b.maturityY).toBeLessThanOrEqual(4);
+    }
+  });
+
+  it('maxYears=7 filtra a vintages ≤7y (ID26-ID32)', () => {
+    const lineup = defaultBulletLineup(new Date(2026, 4, 7), 7);
+    expect(lineup).toHaveLength(7);
+    expect(lineup.map(b => b.name)).toEqual(['ID26', 'ID27', 'ID28', 'ID29', 'ID30', 'ID31', 'ID32']);
+  });
+
+  it('maxYears=null deja lineup completo (= sin pasar maxYears)', () => {
+    const lineup = defaultBulletLineup(new Date(2026, 4, 7), null);
+    expect(lineup).toHaveLength(11);
+  });
+
+  it('maxYears muy bajo (<0.6) lanza porque quedan <2 vintages', () => {
+    expect(() => defaultBulletLineup(new Date(2026, 4, 7), 0.5)).toThrow(/al menos 2/);
+  });
 });

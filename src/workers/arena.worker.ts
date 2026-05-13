@@ -104,6 +104,16 @@ export type ArenaJobInput = {
    * (override − UST1Y inicial) se preserva en renovaciones anuales.
    */
   dpfRateOverride?: number | null;
+
+  // ---- Sleeve duration cap ----
+  /**
+   * Si se pasa, el lineup default se filtra a vintages con maturityY <= este
+   * valor. Útil para escenarios de tasas largo plazo desfavorable donde el
+   * cliente prefiere acortar duración (e.g., 4 deja ID26-ID29). Si null/
+   * omitido, lineup completo (~11y). Ignorado si payload.realBullets viene
+   * con un lineup explícito.
+   */
+  maxBulletYears?: number | null;
 };
 
 export type ArenaJobOutput = {
@@ -202,7 +212,7 @@ function executeJob(id: string, payload: ArenaJobInput): {
         durInitY: b.durInitY,
         isSynthetic: b.isSynthetic,
       }))
-    : defaultBulletLineup();
+    : defaultBulletLineup(undefined, payload.maxBulletYears);
 
   // ----- Step 1: runBootstrap con portfolio dummy.
   // Necesitamos yieldPaths + etfReturns. El portfolio puede ser irrelevante,

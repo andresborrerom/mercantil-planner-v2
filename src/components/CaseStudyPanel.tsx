@@ -777,6 +777,38 @@ export default function CaseStudyPanel() {
               hint="banda dura del rollover"
             />
           </div>
+          {/* Cap de duración del sleeve. Default OFF: lineup completo (ID26-ID36S,
+              ~11y). Cuando se prende, filtra el lineup a vintages <= N años. Útil
+              si el cliente espera un escenario de tasas largo plazo desfavorable
+              y quiere acortar duración (e.g., 4y deja ID26-ID29). */}
+          <div className="grid grid-cols-2 gap-3 pt-2 border-t border-mercantil-line dark:border-mercantil-dark-line items-end">
+            <label className="flex items-center gap-2 text-xs text-mercantil-slate dark:text-mercantil-dark-slate cursor-pointer">
+              <input
+                type="checkbox"
+                checked={config.maxBulletYearsEnabled}
+                onChange={(e) => setConfig({ maxBulletYearsEnabled: e.target.checked })}
+                className="accent-mercantil-orange h-3.5 w-3.5"
+              />
+              <span>
+                Limitar duración del sleeve{' '}
+                <span className="text-mercantil-slate/60 dark:text-mercantil-dark-slate/60">
+                  (default OFF = 11y máx)
+                </span>
+              </span>
+            </label>
+            {config.maxBulletYearsEnabled && (
+              <NumInput
+                label="Máximo años"
+                value={config.maxBulletYears}
+                onChange={(v) => setConfig({ maxBulletYears: v })}
+                step={1}
+                min={2}
+                max={11}
+                suffix="años"
+                hint="solo vintages ≤ N años en el ladder"
+              />
+            )}
+          </div>
         </fieldset>
 
         {/* --- Flows --- */}
@@ -1004,7 +1036,7 @@ export default function CaseStudyPanel() {
                     className="accent-mercantil-orange h-3.5 w-3.5"
                   />
                   <span className="flex items-center gap-1">
-                    <span className="inline-block w-3 h-[2px] align-middle" style={{ background: '#b45309' }} />
+                    <span className="inline-block w-3 h-[2px] align-middle" style={{ background: '#6B7280' }} />
                     DPF1Y tasa inicial
                   </span>
                 </label>
@@ -1171,8 +1203,8 @@ export default function CaseStudyPanel() {
                     type="monotone"
                     dataKey="band5095"
                     stroke="none"
-                    fill="#003566"
-                    fillOpacity={0.12}
+                    fill="#F58220"
+                    fillOpacity={0.10}
                     name="p5–p95 (90%)"
                     isAnimationActive={false}
                   />
@@ -1180,8 +1212,8 @@ export default function CaseStudyPanel() {
                     type="monotone"
                     dataKey="band2575"
                     stroke="none"
-                    fill="#003566"
-                    fillOpacity={0.28}
+                    fill="#F58220"
+                    fillOpacity={0.24}
                     name="p25–p75 (50%)"
                     isAnimationActive={false}
                   />
@@ -1229,7 +1261,7 @@ export default function CaseStudyPanel() {
                         type="monotone"
                         dataKey="dpfBand5095"
                         stroke="none"
-                        fill="#b45309"
+                        fill="#6B7280"
                         fillOpacity={0.10}
                         name="DPF p5–p95"
                         isAnimationActive={false}
@@ -1238,15 +1270,15 @@ export default function CaseStudyPanel() {
                         type="monotone"
                         dataKey="dpfBand2575"
                         stroke="none"
-                        fill="#b45309"
-                        fillOpacity={0.22}
+                        fill="#6B7280"
+                        fillOpacity={0.24}
                         name="DPF p25–p75"
                         isAnimationActive={false}
                       />
                       <Line
                         type="monotone"
                         dataKey="dpf"
-                        stroke="#b45309"
+                        stroke="#6B7280"
                         strokeWidth={1.5}
                         strokeDasharray="2 6"
                         dot={false}
@@ -1424,7 +1456,7 @@ export default function CaseStudyPanel() {
                       <Line
                         type="monotone"
                         dataKey="dpf"
-                        stroke="#b45309"
+                        stroke="#6B7280"
                         strokeWidth={1.5}
                         strokeDasharray="2 6"
                         dot={false}

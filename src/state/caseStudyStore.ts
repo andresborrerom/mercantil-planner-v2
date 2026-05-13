@@ -51,6 +51,14 @@ export type CaseStudyConfig = {
    * al treasury 1y.
    */
   dpfRateOverride: number | null;
+  /**
+   * Toggle: si true, el sleeve de bullets se acota a vintages con
+   * maturity ≤ maxBulletYears. Si false, lineup completo (~11y, default).
+   * Útil para escenarios de tasas largo plazo desfavorable.
+   */
+  maxBulletYearsEnabled: boolean;
+  /** Cap de duración del sleeve cuando maxBulletYearsEnabled=true. */
+  maxBulletYears: number;
 };
 
 export const DEFAULT_CASE_CONFIG: CaseStudyConfig = {
@@ -74,6 +82,8 @@ export const DEFAULT_CASE_CONFIG: CaseStudyConfig = {
   rolloverEnabled: true,
   cashBandUpper: 0.05,
   dpfRateOverride: null,
+  maxBulletYearsEnabled: false,
+  maxBulletYears: 4,
 };
 
 /** Convierte CaseStudyConfig → ArenaJobInput aplicando defaults fijos. */
@@ -110,6 +120,7 @@ export function configToJobInput(config: CaseStudyConfig): ArenaJobInput {
     seed: config.seed,
     cashBandUpper: config.cashBandUpper,
     dpfRateOverride: config.dpfRateOverride,
+    maxBulletYears: config.maxBulletYearsEnabled ? config.maxBulletYears : null,
   };
 }
 
@@ -133,14 +144,14 @@ export const MAX_SAVED_VARIANTS = 4;
 /**
  * Colores para overlays de variantes. Evitamos:
  *  - Verde (#3a8a4e): reservado para la línea "Capital + aportes acumulados"
- *  - Naranja (#F58220): reservado para la línea "Mediana / Run actual"
- *  - Gris (#888): reservado para "Capital inicial"
- *  - Azul (#003566): reservado para las bandas p5-p95 / p25-p75
+ *  - Naranja (#F58220): reservado para Custom — mediana y bandas p5-p95 / p25-p75
+ *  - Gris (#6B7280): reservado para DPF1Y — mediana y bandas
+ *  - Gris claro (#888): reservado para "Capital inicial"
  *
- * Quedan: púrpura, teal, magenta, rojo. Suficiente contraste entre ellos
- * y con los colores reservados.
+ * Quedan: azul, púrpura, teal, magenta, rojo. Suficiente contraste entre
+ * ellos y con los colores reservados.
  */
-const VARIANT_COLORS = ['#7c3aed', '#0d9488', '#db2777', '#dc2626'] as const;
+const VARIANT_COLORS = ['#003566', '#7c3aed', '#0d9488', '#db2777'] as const;
 
 type CaseStudyState = {
   config: CaseStudyConfig;

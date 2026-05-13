@@ -364,9 +364,13 @@ export function monthsBetween(dFrom: Date, dTo: Date): number {
  * (9 reales) + 2 sintéticos para extender hasta 2036. Cada uno con duración
  * inicial = 0.93 × maturity (regla de pulgar IG corporate).
  *
- * @param t0  fecha de referencia (default: 2026-05-15)
+ * @param t0       fecha de referencia (default: 2026-05-15)
+ * @param maxYears si se pasa, filtra el lineup a vintages con maturityY <= maxYears.
+ *                 Útil para acortar la duración del sleeve cuando el cliente
+ *                 espera un escenario de tasas largo plazo desfavorable
+ *                 (e.g., maxYears=4 deja solo ID26-ID29). Lanza si quedan <2.
  */
-export function defaultBulletLineup(t0?: Date): BulletDef[] {
+export function defaultBulletLineup(t0?: Date, maxYears?: number | null): BulletDef[] {
   const start = t0 ?? new Date(2026, 4, 15); // mes 4 = mayo (0-indexed)
   const dec15 = (y: number) => new Date(y, 11, 15);
 
@@ -392,5 +396,17 @@ export function defaultBulletLineup(t0?: Date): BulletDef[] {
       isSynthetic: true,
     });
   }
+
+  if (maxYears !== undefined && maxYears !== null) {
+    const filtered = bullets.filter((b) => b.maturityY <= maxYears);
+    if (filtered.length < 2) {
+      throw new Error(
+        `maxYears=${maxYears} deja solo ${filtered.length} vintage(s) en el lineup. ` +
+          `Se necesitan al menos 2 para que el ladder funcione.`,
+      );
+    }
+    return filtered;
+  }
+
   return bullets;
 }
