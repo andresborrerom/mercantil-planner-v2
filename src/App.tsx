@@ -1,3 +1,5 @@
+import { useState } from 'react';
+import CaseStudyPanel from './components/CaseStudyPanel';
 import ExportBar from './components/ExportBar';
 import FanChart from './components/FanChart';
 import FlowEditor from './components/FlowEditor';
@@ -10,6 +12,8 @@ import StatsPanel from './components/StatsPanel';
 import ViewsPanel from './components/ViewsPanel';
 import { usePlannerStore } from './state/store';
 
+type ActiveTab = 'compare' | 'case-study';
+
 function App() {
   const portfolioA = usePlannerStore((s) => s.portfolioA);
   const portfolioB = usePlannerStore((s) => s.portfolioB);
@@ -17,6 +21,7 @@ function App() {
   const setPortfolioB = usePlannerStore((s) => s.setPortfolioB);
   const showProposedAmcs = usePlannerStore((s) => s.showProposedAmcs);
   const setShowProposedAmcs = usePlannerStore((s) => s.setShowProposedAmcs);
+  const [activeTab, setActiveTab] = useState<ActiveTab>('compare');
 
   return (
     <div className="min-h-screen flex flex-col">
@@ -43,60 +48,78 @@ function App() {
           </div>
         </section>
 
+        {/* Tab nav */}
+        <section className="border-b border-mercantil-line dark:border-mercantil-dark-line">
+          <div className="mx-auto max-w-7xl px-6 flex gap-1">
+            <TabButton active={activeTab === 'compare'} onClick={() => setActiveTab('compare')}>
+              Comparador A / B
+            </TabButton>
+            <TabButton active={activeTab === 'case-study'} onClick={() => setActiveTab('case-study')}>
+              Caso de Estudio
+            </TabButton>
+          </div>
+        </section>
+
         {/* Body */}
         <section className="mx-auto max-w-7xl px-6 py-8 space-y-6">
-          {/* Fila 1: Portafolios A y B */}
-          <div className="space-y-2">
-            <div className="flex items-center justify-end">
-              <label
-                className="flex items-center gap-2 text-xs text-mercantil-slate dark:text-mercantil-dark-slate cursor-pointer hover:text-mercantil-ink dark:hover:text-mercantil-dark-ink select-none"
-                title="Los AMCs propuestos (CashST, USGrTech, USTDur) aún no están aprobados. Mostralos para incluirlos en la selección."
-              >
-                <input
-                  type="checkbox"
-                  checked={showProposedAmcs}
-                  onChange={(e) => setShowProposedAmcs(e.target.checked)}
-                  className="accent-mercantil-orange h-3.5 w-3.5"
-                />
-                Mostrar AMCs propuestos
-              </label>
-            </div>
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-              <PortfolioSelector
-                label="Portafolio A"
-                accentClass="A"
-                value={portfolioA}
-                onChange={setPortfolioA}
-              />
-              <PortfolioSelector
-                label="Portafolio B"
-                accentClass="B"
-                value={portfolioB}
-                onChange={setPortfolioB}
-              />
-            </div>
-          </div>
+          {activeTab === 'compare' ? (
+            <>
+              {/* Fila 1: Portafolios A y B */}
+              <div className="space-y-2">
+                <div className="flex items-center justify-end">
+                  <label
+                    className="flex items-center gap-2 text-xs text-mercantil-slate dark:text-mercantil-dark-slate cursor-pointer hover:text-mercantil-ink dark:hover:text-mercantil-dark-ink select-none"
+                    title="Los AMCs propuestos (CashST, USGrTech, USTDur) aún no están aprobados. Mostralos para incluirlos en la selección."
+                  >
+                    <input
+                      type="checkbox"
+                      checked={showProposedAmcs}
+                      onChange={(e) => setShowProposedAmcs(e.target.checked)}
+                      className="accent-mercantil-orange h-3.5 w-3.5"
+                    />
+                    Mostrar AMCs propuestos
+                  </label>
+                </div>
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                  <PortfolioSelector
+                    label="Portafolio A"
+                    accentClass="A"
+                    value={portfolioA}
+                    onChange={setPortfolioA}
+                  />
+                  <PortfolioSelector
+                    label="Portafolio B"
+                    accentClass="B"
+                    value={portfolioB}
+                    onChange={setPortfolioB}
+                  />
+                </div>
+              </div>
 
-          {/* Fila 2: Perfil + escenario sample */}
-          <ProfilePreview />
+              {/* Fila 2: Perfil + escenario sample */}
+              <ProfilePreview />
 
-          {/* Fila 3: Flow editor */}
-          <FlowEditor />
+              {/* Fila 3: Flow editor */}
+              <FlowEditor />
 
-          {/* Fila 3: Fan chart */}
-          <FanChart />
+              {/* Fila 3: Fan chart */}
+              <FanChart />
 
-          {/* Fila 4: Stats */}
-          <StatsPanel />
+              {/* Fila 4: Stats */}
+              <StatsPanel />
 
-          {/* Fila 4b: Views (análisis condicional) */}
-          <ViewsPanel />
+              {/* Fila 4b: Views (análisis condicional) */}
+              <ViewsPanel />
 
-          {/* Fila 4c: Regímenes históricos (Fase C.3) */}
-          <RegimesPanel />
+              {/* Fila 4c: Regímenes históricos (Fase C.3) */}
+              <RegimesPanel />
 
-          {/* Fila 5: Export */}
-          <ExportBar />
+              {/* Fila 5: Export */}
+              <ExportBar />
+            </>
+          ) : (
+            <CaseStudyPanel />
+          )}
         </section>
       </main>
 
@@ -111,6 +134,29 @@ function App() {
         </div>
       </footer>
     </div>
+  );
+}
+
+function TabButton({
+  active,
+  onClick,
+  children,
+}: {
+  active: boolean;
+  onClick: () => void;
+  children: React.ReactNode;
+}) {
+  return (
+    <button
+      onClick={onClick}
+      className={`px-4 py-3 text-sm font-medium border-b-2 transition-colors ${
+        active
+          ? 'border-mercantil-orange text-mercantil-ink dark:text-mercantil-dark-ink'
+          : 'border-transparent text-mercantil-slate dark:text-mercantil-dark-slate hover:text-mercantil-ink dark:hover:text-mercantil-dark-ink'
+      }`}
+    >
+      {children}
+    </button>
   );
 }
 
