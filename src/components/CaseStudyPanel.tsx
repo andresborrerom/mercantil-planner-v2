@@ -195,6 +195,11 @@ export default function CaseStudyPanel() {
   // Bands se guardan como tuplas [lower, upper] para que recharts pinte solo
   // el rango entre p5-p95 / p25-p75 (no desde 0 hasta el valor). Mismo patrón
   // que el FanChart original del Comparador A/B.
+  //
+  // `deposit`: serie temporal del baseline "solo ahorrar sin invertir". Arranca
+  // en initialAUM y crece cada mes por el inflow correspondiente. NO es una
+  // línea horizontal — es una piecewise-linear que sube con cada aporte. Con
+  // growth=0 queda casi recta; con growth>0 los escalones se aceleran cada año.
   const wealthChartData = useMemo(() => {
     if (!result) return [];
     const { nSims, horizonMonths } = result.meta;
@@ -206,12 +211,14 @@ export default function CaseStudyPanel() {
       p50: number;
       band5095: [number, number];
       band2575: [number, number];
+      deposit: number; // capital + aportes acumulados hasta el cierre del mes t
       // Para tooltip individual:
       p5: number;
       p25: number;
       p75: number;
       p95: number;
     }[] = [];
+    let cumDepositUsd = result.stats.initialAum;
     for (let t = 0; t < Hp1; t++) {
       const p5 = netPct[t][0] / 1e6;
       const p25 = netPct[t][1] / 1e6;
@@ -223,25 +230,21 @@ export default function CaseStudyPanel() {
         p50,
         band5095: [p5, p95],
         band2575: [p25, p75],
+        deposit: cumDepositUsd / 1e6,
         p5, p25, p75, p95,
       });
+      // Inflow del mes t se acumula DESPUÉS de capturar el deposit del mes t,
+      // así data[0].deposit = initial y data[1].deposit = initial + inflow_0.
+      // Matchea el orden de cashflowStep en arena (inflow llega en step t).
+      if (t < horizonMonths) {
+        cumDepositUsd += computeMonthlyInflow(t, config.inflowBaseAnnual, config.inflowGrowth);
+      }
     }
     return data;
-  }, [result]);
-
-  // Referencias para interpretar el chart:
-  //   - initialAum: capital al día 0 (línea horizontal)
-  //   - cumDeposit: capital inicial + inflows acumulados hasta mes H ("savings only" baseline)
-  const wealthReferences = useMemo(() => {
-    if (!result) return null;
-    const initial = result.stats.initialAum / 1e6;
-    let totalInflows = 0;
-    for (let t = 0; t < result.meta.horizonMonths; t++) {
-      totalInflows += computeMonthlyInflow(t, config.inflowBaseAnnual, config.inflowGrowth);
-    }
-    const cumDeposit = (result.stats.initialAum + totalInflows) / 1e6;
-    return { initial, cumDeposit };
   }, [result, config.inflowBaseAnnual, config.inflowGrowth]);
+
+  // Referencia simple: capital inicial es la única línea horizontal del chart.
+  const initialAumM = result ? result.stats.initialAum / 1e6 : 0;
 
   // Ticks anuales del X-axis. Si la ventana es corta (<24m) usamos cada 3m.
   const xTicks = useMemo(() => {
@@ -256,9 +259,9 @@ export default function CaseStudyPanel() {
   }, [result, window]);
 
   // Y-domain DINÁMICO calculado solo sobre data dentro del window.
-  // Matchea el patrón del FanChart original: el eje hace zoom a la ventana.
-  // Incluimos también las ReferenceLines (initial + cumDeposit) para que no
-  // queden fuera de pantalla cuando el window arranca después del año 0.
+  // Incluye p5, p95 (bandas) y la serie deposit (aportes acumulados), además
+  // de la ReferenceLine de capital inicial. Esto garantiza que toda la
+  // información visible quede dentro del eje, sin importar la ventana elegida.
   const wealthYDomain = useMemo<[number, number]>(() => {
     if (!result || !window || wealthChartData.length === 0) return [0, 1];
     let min = Infinity;
@@ -267,30 +270,34 @@ export default function CaseStudyPanel() {
       if (p.month < window.startMonth || p.month > window.endMonth) continue;
       if (p.p5 < min) min = p.p5;
       if (p.p95 > max) max = p.p95;
+      if (p.deposit < min) min = p.deposit;
+      if (p.deposit > max) max = p.deposit;
     }
-    // Incluir las refs en el cómputo si están en el rango del window
-    if (wealthReferences) {
-      if (wealthReferences.initial < min) min = wealthReferences.initial;
-      if (wealthReferences.initial > max) max = wealthReferences.initial;
-      if (wealthReferences.cumDeposit < min) min = wealthReferences.cumDeposit;
-      if (wealthReferences.cumDeposit > max) max = wealthReferences.cumDeposit;
-    }
+    // Incluir capital inicial (horizontal) si cae dentro de la ventana
+    if (initialAumM < min) min = initialAumM;
+    if (initialAumM > max) max = initialAumM;
     if (!Number.isFinite(min) || !Number.isFinite(max)) return [0, 1];
     const range = max - min;
     const pad = range > 0 ? range * 0.05 : Math.abs(max) * 0.05 || 0.1;
     return [Math.max(0, min - pad), max + pad];
-  }, [result, window, wealthChartData, wealthReferences]);
+  }, [result, window, wealthChartData, initialAumM]);
 
-  // Chips de período rápido
+  // Chips de período rápido. 15y y 20y solo se muestran si el horizonte de la
+  // simulación los cubre. El chip "Total" queda al final con el horizonte exacto.
   const periodChips = useMemo(() => {
     if (!result) return [];
-    return [
+    const H = result.meta.horizonMonths;
+    const base = [
       { label: '1y', months: 12 },
       { label: '3y', months: 36 },
       { label: '5y', months: 60 },
       { label: '10y', months: 120 },
-      { label: 'Total', months: result.meta.horizonMonths },
-    ].filter((c) => c.months <= result.meta.horizonMonths);
+      { label: '15y', months: 180 },
+      { label: '20y', months: 240 },
+    ].filter((c) => c.months <= H && c.months !== H);
+    // El chip "Total" siempre va al final y representa el horizonte real
+    base.push({ label: 'Total', months: H });
+    return base;
   }, [result]);
 
   const sleeveChartData = useMemo(() => {
@@ -727,24 +734,27 @@ export default function CaseStudyPanel() {
                     name="Mediana"
                     isAnimationActive={false}
                   />
-                  {wealthReferences && (
-                    <ReferenceLine
-                      y={wealthReferences.initial}
-                      stroke="#888"
-                      strokeDasharray="4 4"
-                      strokeWidth={1}
-                      label={{ value: `Capital inicial`, position: 'insideTopLeft', fontSize: 10, fill: '#888' }}
-                    />
-                  )}
-                  {wealthReferences && (
-                    <ReferenceLine
-                      y={wealthReferences.cumDeposit}
-                      stroke="#3a8a4e"
-                      strokeDasharray="4 4"
-                      strokeWidth={1.5}
-                      label={{ value: `+ aportes acumulados`, position: 'insideBottomRight', fontSize: 10, fill: '#3a8a4e' }}
-                    />
-                  )}
+                  {/* Serie deposit: capital inicial + aportes acumulados mes a mes.
+                       Es una línea creciente (no horizontal) que arranca en el
+                       capital y sube por cada inflow. */}
+                  <Line
+                    type="stepAfter"
+                    dataKey="deposit"
+                    stroke="#3a8a4e"
+                    strokeWidth={1.5}
+                    strokeDasharray="4 4"
+                    dot={false}
+                    name="Capital + aportes acumulados"
+                    isAnimationActive={false}
+                  />
+                  {/* Capital inicial: única línea verdaderamente horizontal */}
+                  <ReferenceLine
+                    y={initialAumM}
+                    stroke="#888"
+                    strokeDasharray="2 4"
+                    strokeWidth={1}
+                    label={{ value: `Capital inicial`, position: 'insideTopLeft', fontSize: 10, fill: '#888' }}
+                  />
                 </ComposedChart>
               </ResponsiveContainer>
             </div>
