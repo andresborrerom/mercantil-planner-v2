@@ -23,11 +23,13 @@ import {
   ComposedChart,
   Legend,
   Line,
+  ReferenceLine,
   ResponsiveContainer,
   Tooltip,
   XAxis,
   YAxis,
 } from 'recharts';
+import { computeMonthlyInflow } from '../domain/cashflow';
 import { useArenaWorker } from '../hooks/useArenaWorker';
 import {
   configToJobInput,
@@ -178,24 +180,64 @@ export default function CaseStudyPanel() {
   }, [config, worker, setStatus, setResult, setError]);
 
   // ---- Chart data (memo: solo recomputa cuando cambia result) ----
+  // Bands se guardan como tuplas [lower, upper] para que recharts pinte solo
+  // el rango entre p5-p95 / p25-p75 (no desde 0 hasta el valor). Mismo patrón
+  // que el FanChart original del Comparador A/B.
   const wealthChartData = useMemo(() => {
     if (!result) return [];
     const { nSims, horizonMonths } = result.meta;
     const Hp1 = horizonMonths + 1;
     const ps = [0.05, 0.25, 0.5, 0.75, 0.95];
     const netPct = pctPath(result.netWealthPath, nSims, Hp1, ps);
-    const data: { month: number; p5: number; p25: number; p50: number; p75: number; p95: number }[] = [];
+    const data: {
+      month: number;
+      p50: number;
+      band5095: [number, number];
+      band2575: [number, number];
+      // Para tooltip individual:
+      p5: number;
+      p25: number;
+      p75: number;
+      p95: number;
+    }[] = [];
     for (let t = 0; t < Hp1; t++) {
+      const p5 = netPct[t][0] / 1e6;
+      const p25 = netPct[t][1] / 1e6;
+      const p50 = netPct[t][2] / 1e6;
+      const p75 = netPct[t][3] / 1e6;
+      const p95 = netPct[t][4] / 1e6;
       data.push({
         month: t,
-        p5: netPct[t][0] / 1e6,
-        p25: netPct[t][1] / 1e6,
-        p50: netPct[t][2] / 1e6,
-        p75: netPct[t][3] / 1e6,
-        p95: netPct[t][4] / 1e6,
+        p50,
+        band5095: [p5, p95],
+        band2575: [p25, p75],
+        p5, p25, p75, p95,
       });
     }
     return data;
+  }, [result]);
+
+  // Referencias para interpretar el chart:
+  //   - initialAum: capital al día 0 (línea horizontal)
+  //   - cumDeposit: capital inicial + inflows acumulados hasta mes H ("savings only" baseline)
+  const wealthReferences = useMemo(() => {
+    if (!result) return null;
+    const initial = result.stats.initialAum / 1e6;
+    let totalInflows = 0;
+    for (let t = 0; t < result.meta.horizonMonths; t++) {
+      totalInflows += computeMonthlyInflow(t, config.inflowBaseAnnual, config.inflowGrowth);
+    }
+    const cumDeposit = (result.stats.initialAum + totalInflows) / 1e6;
+    return { initial, cumDeposit };
+  }, [result, config.inflowBaseAnnual, config.inflowGrowth]);
+
+  // Ticks anuales para el X-axis (mes 0, 12, 24, ...)
+  const xTicks = useMemo(() => {
+    if (!result) return [];
+    const ticks: number[] = [];
+    for (let t = 0; t <= result.meta.horizonMonths; t += 12) ticks.push(t);
+    if (ticks[ticks.length - 1] !== result.meta.horizonMonths) ticks.push(result.meta.horizonMonths);
+    return ticks;
   }, [result]);
 
   const sleeveChartData = useMemo(() => {
@@ -550,31 +592,112 @@ export default function CaseStudyPanel() {
 
           {/* Wealth fan chart */}
           <div className="bg-white dark:bg-mercantil-dark-panel rounded-lg border border-mercantil-line dark:border-mercantil-dark-line p-5">
-            <h3 className="text-sm uppercase tracking-wider text-mercantil-slate dark:text-mercantil-dark-slate font-medium mb-3">
+            <h3 className="text-sm uppercase tracking-wider text-mercantil-slate dark:text-mercantil-dark-slate font-medium mb-1">
               Net wealth path — percentiles ($ millones)
             </h3>
+            <p className="text-xs text-mercantil-slate dark:text-mercantil-dark-slate mb-3">
+              Línea naranja = mediana sobre las {result.meta.nSims} simulaciones. Bandas azules = 50% (p25–p75) y 90%
+              (p5–p95) de los caminos posibles. La línea gris punteada es el capital inicial; la verde es capital + aportes
+              acumulados (el piso de "solo ahorrar sin invertir"). La propuesta agrega valor si el camino mediano queda
+              por encima de la verde.
+            </p>
             <div className="h-80">
               <ResponsiveContainer width="100%" height="100%">
-                <ComposedChart data={wealthChartData}>
+                <ComposedChart data={wealthChartData} margin={{ top: 8, right: 16, left: 0, bottom: 4 }}>
                   <CartesianGrid strokeDasharray="3 3" opacity={0.3} />
                   <XAxis
                     dataKey="month"
-                    label={{ value: 'Mes', position: 'insideBottom', offset: -2 }}
+                    type="number"
+                    domain={[0, result.meta.horizonMonths]}
+                    ticks={xTicks}
                     tickFormatter={(v: number) => `${(v / 12).toFixed(0)}y`}
+                    fontSize={11}
                   />
-                  <YAxis label={{ value: '$M', angle: -90, position: 'insideLeft' }} />
+                  <YAxis
+                    width={60}
+                    tickFormatter={(v: number) => `$${v.toFixed(0)}M`}
+                    fontSize={11}
+                  />
                   <Tooltip
-                    formatter={(v) => `$${(typeof v === 'number' ? v : 0).toFixed(2)}M`}
-                    labelFormatter={(v) => `Mes ${v} (año ${(typeof v === 'number' ? v / 12 : 0).toFixed(1)})`}
+                    formatter={(v, name) => {
+                      if (Array.isArray(v)) {
+                        const [lo, hi] = v as [number, number];
+                        return [`$${lo.toFixed(2)}M – $${hi.toFixed(2)}M`, name];
+                      }
+                      const n = typeof v === 'number' ? v : 0;
+                      return [`$${n.toFixed(2)}M`, name];
+                    }}
+                    labelFormatter={(v) => {
+                      const m = typeof v === 'number' ? v : 0;
+                      return `Mes ${m} (año ${(m / 12).toFixed(1)})`;
+                    }}
                   />
-                  <Legend />
-                  <Area type="monotone" dataKey="p95" stackId="bands" stroke="none" fill="#003566" fillOpacity={0.1} name="p5-p95 (90%)" />
-                  <Area type="monotone" dataKey="p5" stackId="bands2" stroke="none" fill="#003566" fillOpacity={0.1} />
-                  <Area type="monotone" dataKey="p75" stackId="bands3" stroke="none" fill="#003566" fillOpacity={0.25} name="p25-p75 (50%)" />
-                  <Area type="monotone" dataKey="p25" stackId="bands4" stroke="none" fill="#003566" fillOpacity={0.25} />
-                  <Line type="monotone" dataKey="p50" stroke="#F58220" strokeWidth={2} dot={false} name="Mediana" />
+                  <Legend
+                    verticalAlign="bottom"
+                    iconType="line"
+                    wrapperStyle={{ fontSize: 11, paddingTop: 4 }}
+                  />
+                  {/* Bandas: dataKey tupla [lower, upper] → recharts pinta solo entre los 2 valores */}
+                  <Area
+                    type="monotone"
+                    dataKey="band5095"
+                    stroke="none"
+                    fill="#003566"
+                    fillOpacity={0.12}
+                    name="p5–p95 (90%)"
+                    isAnimationActive={false}
+                  />
+                  <Area
+                    type="monotone"
+                    dataKey="band2575"
+                    stroke="none"
+                    fill="#003566"
+                    fillOpacity={0.28}
+                    name="p25–p75 (50%)"
+                    isAnimationActive={false}
+                  />
+                  <Line
+                    type="monotone"
+                    dataKey="p50"
+                    stroke="#F58220"
+                    strokeWidth={2}
+                    dot={false}
+                    name="Mediana"
+                    isAnimationActive={false}
+                  />
+                  {wealthReferences && (
+                    <ReferenceLine
+                      y={wealthReferences.initial}
+                      stroke="#888"
+                      strokeDasharray="4 4"
+                      strokeWidth={1}
+                      label={{ value: `Capital inicial`, position: 'insideTopLeft', fontSize: 10, fill: '#888' }}
+                    />
+                  )}
+                  {wealthReferences && (
+                    <ReferenceLine
+                      y={wealthReferences.cumDeposit}
+                      stroke="#3a8a4e"
+                      strokeDasharray="4 4"
+                      strokeWidth={1.5}
+                      label={{ value: `+ aportes acumulados`, position: 'insideBottomRight', fontSize: 10, fill: '#3a8a4e' }}
+                    />
+                  )}
                 </ComposedChart>
               </ResponsiveContainer>
+            </div>
+            <div className="mt-3 grid grid-cols-1 md:grid-cols-2 gap-3 text-xs text-mercantil-slate dark:text-mercantil-dark-slate">
+              <div className="p-3 rounded border border-mercantil-line dark:border-mercantil-dark-line">
+                <strong className="text-mercantil-ink dark:text-mercantil-dark-ink">Lado izquierdo · corto plazo:</strong>{' '}
+                las bandas son angostas. El riesgo dominante es <strong>volatilidad mark-to-market</strong> — drawdowns
+                puntuales que la junta vería en el reporting trimestral.
+              </div>
+              <div className="p-3 rounded border border-mercantil-line dark:border-mercantil-dark-line">
+                <strong className="text-mercantil-ink dark:text-mercantil-dark-ink">Lado derecho · largo plazo:</strong>{' '}
+                las bandas se ensanchan pero el piso suele estar por encima de los aportes acumulados. El riesgo
+                deja de ser volatilidad y pasa a ser <strong>no cumplir el objetivo</strong> por haber sido
+                demasiado conservador.
+              </div>
             </div>
           </div>
 
@@ -585,21 +708,39 @@ export default function CaseStudyPanel() {
             </h3>
             <div className="h-72">
               <ResponsiveContainer width="100%" height="100%">
-                <ComposedChart data={sleeveChartData}>
+                <ComposedChart data={sleeveChartData} margin={{ top: 8, right: 16, left: 0, bottom: 4 }}>
                   <CartesianGrid strokeDasharray="3 3" opacity={0.3} />
                   <XAxis
                     dataKey="month"
+                    type="number"
+                    domain={[0, result.meta.horizonMonths]}
+                    ticks={xTicks}
                     tickFormatter={(v: number) => `${(v / 12).toFixed(0)}y`}
+                    fontSize={11}
                   />
-                  <YAxis label={{ value: '$M', angle: -90, position: 'insideLeft' }} />
+                  <YAxis
+                    width={60}
+                    tickFormatter={(v: number) => `$${v.toFixed(0)}M`}
+                    fontSize={11}
+                  />
                   <Tooltip
-                    formatter={(v) => `$${(typeof v === 'number' ? v : 0).toFixed(2)}M`}
-                    labelFormatter={(v) => `Mes ${typeof v === 'number' ? v : 0}`}
+                    formatter={(v, name) => {
+                      const n = typeof v === 'number' ? v : 0;
+                      return [`$${n.toFixed(2)}M`, name];
+                    }}
+                    labelFormatter={(v) => {
+                      const m = typeof v === 'number' ? v : 0;
+                      return `Mes ${m} (año ${(m / 12).toFixed(1)})`;
+                    }}
                   />
-                  <Legend />
-                  <Area type="monotone" dataKey="bullets" stackId="1" stroke="#003566" fill="#003566" fillOpacity={0.7} name="Bullets" />
-                  <Area type="monotone" dataKey="equity" stackId="1" stroke="#F58220" fill="#F58220" fillOpacity={0.7} name="Equity" />
-                  <Area type="monotone" dataKey="cash" stackId="1" stroke="#888" fill="#888" fillOpacity={0.5} name="Cash" />
+                  <Legend
+                    verticalAlign="bottom"
+                    iconType="square"
+                    wrapperStyle={{ fontSize: 11, paddingTop: 4 }}
+                  />
+                  <Area type="monotone" dataKey="bullets" stackId="1" stroke="#003566" fill="#003566" fillOpacity={0.7} name="Bullets" isAnimationActive={false} />
+                  <Area type="monotone" dataKey="equity" stackId="1" stroke="#F58220" fill="#F58220" fillOpacity={0.7} name="Equity" isAnimationActive={false} />
+                  <Area type="monotone" dataKey="cash" stackId="1" stroke="#888" fill="#888" fillOpacity={0.5} name="Cash" isAnimationActive={false} />
                 </ComposedChart>
               </ResponsiveContainer>
             </div>
