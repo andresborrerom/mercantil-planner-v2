@@ -42,6 +42,8 @@ type FixtureScenario = {
   inflow_growth: number;
   cash_band_upper: number;
   bullet_shortest_idx: number;
+  enforce_monthly_equity_cap?: boolean;
+  eqty_max?: number | null;
   expected_final_state: {
     cash_aum: number[];
     equity_aum: number[];
@@ -113,6 +115,8 @@ function runScenarioTs(scen: FixtureScenario): CashFlowState {
       inflowGrowth: scen.inflow_growth,
       cashBandUpper: scen.cash_band_upper,
       bulletShortestIdx: scen.bullet_shortest_idx,
+      enforceMonthlyEquityCap: scen.enforce_monthly_equity_cap === true,
+      eqtyMax: scen.eqty_max ?? undefined,
     });
   }
   return state;

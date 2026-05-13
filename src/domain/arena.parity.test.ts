@@ -55,6 +55,7 @@ type FixtureScenario = {
   initial_aum_usd: number;
   cash_band_upper: number;
   rollover_enabled: boolean;
+  enforce_monthly_equity_cap?: boolean;
   inflow_base_annual: number;
   inflow_growth: number;
   curve_decimal: [number, number, number, number];
@@ -143,6 +144,7 @@ function buildInputs(scen: FixtureScenario): { config: ArenaConfig; market: Aren
     extensionSpacingY: scen.ext_spacing_y,
     cashBandUpper: scen.cash_band_upper,
     rolloverEnabled: scen.rollover_enabled,
+    enforceMonthlyEquityCap: scen.enforce_monthly_equity_cap === true,
   };
   const market: ArenaMarket = {
     bulletReturns: scen.bullet_returns_sim_major.map(toF32),
