@@ -67,6 +67,13 @@ export type ArenaConfig = {
   cashBandUpper?: number;
   /** False = buy-and-hold sin rollover (default true). */
   rolloverEnabled?: boolean;
+  /**
+   * Override de la tasa inicial del DPF1Y baseline (decimal anual).
+   * Si null/omitido, se computa como UST1Y inicial + plan.initialSpread.
+   * El spread implícito (override − UST1Y inicial) se mantiene en
+   * renovaciones futuras.
+   */
+  dpfRateOverride?: number | null;
 };
 
 /**
@@ -568,21 +575,28 @@ export function runArena(
   // ----- DPF1Y baseline per-sim (paired con los yield paths del bootstrap) -----
   // Modelo: depósito a plazo 1y rolling. Cada 12 meses se renueva la tasa al
   // UST1Y vigente en ese sim (interpolación lineal IRX→FVX a maturity 1y),
-  // más el initialSpread del plan (typicamente 110bp IG corp). La tasa
-  // permanece constante entre renovaciones. El balance compoundea
-  // mensualmente con la tasa lockeada e ingresa los inflows cada mes.
+  // más un spread fijo. La tasa permanece constante entre renovaciones.
+  //
+  // Override opcional: si config.dpfRateOverride está seteado, la tasa
+  // inicial se fija al valor del cliente (e.g., "el banco me ofrece 5.25%").
+  // El SPREAD IMPLÍCITO (override − UST1Y inicial) se preserva en las
+  // renovaciones: si las tasas suben, el DPF renovado mantiene la prima
+  // del cliente sobre el UST1Y vigente.
   //
   // Resultado paired: la sim s del DPF baseline ve los mismos yields que la
   // sim s de la estrategia → comparación apples-to-apples sim por sim.
   const dpfBaselinePath = new Float64Array(nSims * Hp1);
-  const DPF_SPREAD = plan.initialSpread;
   const UST1Y_INTERP_K = (1.0 - 0.25) / (5.0 - 0.25); // interp lineal IRX→FVX a 1y
   // Fallback: si market no trae initialCurve, usamos el yield al cierre del
   // mes 0 del sim 0. Diferencia es pequeña (1 paso de simulación).
   const irx0 = market.initialCurve?.[0] ?? market.yieldPaths.IRX[0];
   const fvx0 = market.initialCurve?.[1] ?? market.yieldPaths.FVX[0];
   const ust1y_initial = irx0 + (fvx0 - irx0) * UST1Y_INTERP_K;
-  const initial_dpf_rate = ust1y_initial + DPF_SPREAD;
+  const dpfOverride = config.dpfRateOverride;
+  const DPF_SPREAD = dpfOverride != null
+    ? dpfOverride - ust1y_initial  // spread implícito desde la oferta del banco
+    : plan.initialSpread;          // default IG corp
+  const initial_dpf_rate = dpfOverride != null ? dpfOverride : ust1y_initial + DPF_SPREAD;
 
   for (let s = 0; s < nSims; s++) {
     let balance = AUM0;

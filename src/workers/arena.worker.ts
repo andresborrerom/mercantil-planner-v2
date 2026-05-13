@@ -96,6 +96,14 @@ export type ArenaJobInput = {
 
   // ---- Otros ----
   cashBandUpper?: number; // default 0.05
+
+  // ---- DPF1Y baseline override ----
+  /**
+   * Tasa inicial fija del DPF1Y baseline (decimal anual). Si null/omitido,
+   * se computa como UST1Y inicial + initialSpread. El spread implícito
+   * (override − UST1Y inicial) se preserva en renovaciones anuales.
+   */
+  dpfRateOverride?: number | null;
 };
 
 export type ArenaJobOutput = {
@@ -292,6 +300,7 @@ function executeJob(id: string, payload: ArenaJobInput): {
     extensionSpacingY,
     cashBandUpper: payload.cashBandUpper ?? 0.05,
     rolloverEnabled: payload.rolloverEnabled ?? true,
+    dpfRateOverride: payload.dpfRateOverride ?? null,
   };
   const arenaOut = runArena(config, market);
   const tArena1 =

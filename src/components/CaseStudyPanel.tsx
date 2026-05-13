@@ -281,25 +281,35 @@ export default function CaseStudyPanel() {
     }
   }, [config, worker, setStatus, setResult, setError]);
 
-  // DPF1Y baseline mediana per-mes — viene del worker per-sim (paired con los
-  // yield paths del bootstrap). Cada 12 meses el sim lockea la tasa al UST1Y
-  // vigente en ese path + initialSpread. La mediana sobre las N sims te da la
-  // línea "típica" del DPF; en sims donde las tasas suben, ese sim del DPF
-  // captura tasas mejores en renovaciones futuras y termina más alto.
-  const dpfBaselineMedian = useMemo<number[] | null>(() => {
+  // DPF1Y baseline percentiles per-mes — viene del worker per-sim (paired con
+  // los yield paths del bootstrap). Cada 12 meses el sim lockea la tasa al
+  // UST1Y vigente en ese path + spread. Las bandas p5–p95 / p25–p75 reflejan
+  // la varianza de las renovaciones futuras: si el bootstrap sampleó periodos
+  // de tasas subiendo, ese sim termina más alto. Equivalente al fan del Cap 0
+  // del PDF original.
+  const dpfBaselineBands = useMemo<{
+    p50: number[];
+    p25: number[];
+    p75: number[];
+    p5: number[];
+    p95: number[];
+  } | null>(() => {
     if (!result) return null;
     const { nSims, horizonMonths } = result.meta;
     const Hp1 = horizonMonths + 1;
-    const series: number[] = [];
-    const col = new Float64Array(nSims);
+    const ps = [0.05, 0.25, 0.5, 0.75, 0.95];
+    const percentilesPerMes = pctPath(result.dpfBaselinePath, nSims, Hp1, ps);
+    const p5: number[] = [], p25: number[] = [], p50: number[] = [], p75: number[] = [], p95: number[] = [];
     for (let t = 0; t < Hp1; t++) {
-      for (let s = 0; s < nSims; s++) col[s] = result.dpfBaselinePath[s * Hp1 + t];
-      const sorted = Float64Array.from(col);
-      sorted.sort();
-      series.push(sorted[Math.floor(0.5 * (nSims - 1))] / 1e6);
+      p5.push(percentilesPerMes[t][0] / 1e6);
+      p25.push(percentilesPerMes[t][1] / 1e6);
+      p50.push(percentilesPerMes[t][2] / 1e6);
+      p75.push(percentilesPerMes[t][3] / 1e6);
+      p95.push(percentilesPerMes[t][4] / 1e6);
     }
-    return series;
+    return { p5, p25, p50, p75, p95 };
   }, [result]);
+
 
   // Tasa anualizada inicial del DPF (la del mes 0, antes de renovaciones).
   // Para la UI label. Usa el initial curve del dataset.
@@ -355,6 +365,8 @@ export default function CaseStudyPanel() {
       band2575: [number, number];
       deposit: number;
       dpf?: number;
+      dpfBand5095?: [number, number];
+      dpfBand2575?: [number, number];
       p5: number; p25: number; p75: number; p95: number;
       [variantKey: string]: number | [number, number] | undefined;
     };
@@ -374,11 +386,13 @@ export default function CaseStudyPanel() {
         deposit: cumDepositUsd / 1e6,
         p5, p25, p75, p95,
       };
-      // DPF baseline: mediana sobre las N sims del DPF1Y rolling computado por
-      // el worker (paired con yield paths). Tiene varianza real porque la tasa
-      // se renueva con los yields de cada path.
-      if (dpfBaselineMedian && dpfBaselineMedian[t] !== undefined) {
-        point.dpf = dpfBaselineMedian[t];
+      // DPF baseline bands: mediana + p5-p95 + p25-p75 sobre las N sims del
+      // DPF1Y rolling computado por el worker (paired con yield paths). Tiene
+      // varianza real porque la tasa se renueva con los yields de cada path.
+      if (dpfBaselineBands && dpfBaselineBands.p50[t] !== undefined) {
+        point.dpf = dpfBaselineBands.p50[t];
+        point.dpfBand5095 = [dpfBaselineBands.p5[t], dpfBaselineBands.p95[t]];
+        point.dpfBand2575 = [dpfBaselineBands.p25[t], dpfBaselineBands.p75[t]];
       }
       // Overlay: mediana de cada variante guardada (si esa variante cubre el mes t)
       for (const v of savedVariants) {
@@ -393,7 +407,7 @@ export default function CaseStudyPanel() {
       }
     }
     return data;
-  }, [result, config.inflowBaseAnnual, config.inflowGrowth, savedVariants, variantMedians, dpfBaselineMedian]);
+  }, [result, config.inflowBaseAnnual, config.inflowGrowth, savedVariants, variantMedians, dpfBaselineBands]);
 
   // Referencia simple: capital inicial es la única línea horizontal del chart.
   const initialAumM = result ? result.stats.initialAum / 1e6 : 0;
@@ -424,10 +438,17 @@ export default function CaseStudyPanel() {
       if (p.p95 > max) max = p.p95;
       if (p.deposit < min) min = p.deposit;
       if (p.deposit > max) max = p.deposit;
-      // DPF baseline si está habilitado y disponible
-      if (showDpfBaseline && typeof p.dpf === 'number') {
-        if (p.dpf < min) min = p.dpf;
-        if (p.dpf > max) max = p.dpf;
+      // DPF baseline (mediana + bandas) si está habilitado
+      if (showDpfBaseline) {
+        if (typeof p.dpf === 'number') {
+          if (p.dpf < min) min = p.dpf;
+          if (p.dpf > max) max = p.dpf;
+        }
+        const dpfBand95 = p.dpfBand5095;
+        if (Array.isArray(dpfBand95)) {
+          if (dpfBand95[0] < min) min = dpfBand95[0];
+          if (dpfBand95[1] > max) max = dpfBand95[1];
+        }
       }
       // Incluir medianas de variantes si están en la ventana
       for (const v of savedVariants) {
@@ -898,7 +919,7 @@ export default function CaseStudyPanel() {
               <h3 className="text-sm uppercase tracking-wider text-mercantil-slate dark:text-mercantil-dark-slate font-medium">
                 Comparador de variantes
               </h3>
-              <div className="flex items-center gap-3">
+              <div className="flex items-center gap-3 flex-wrap">
                 <label className="flex items-center gap-1.5 text-xs text-mercantil-slate dark:text-mercantil-dark-slate cursor-pointer">
                   <input
                     type="checkbox"
@@ -906,12 +927,44 @@ export default function CaseStudyPanel() {
                     onChange={(e) => setShowDpfBaseline(e.target.checked)}
                     className="accent-mercantil-orange h-3.5 w-3.5"
                   />
-                  <span>
-                    Mostrar DPF1Y baseline (
-                    <span className="inline-block w-3 h-[2px] align-middle mr-0.5" style={{ background: '#64748b' }} />
-                    inicial <span className="font-medium">{(dpfRateAnnual * 100).toFixed(2)}%</span>)
+                  <span className="flex items-center gap-1">
+                    <span className="inline-block w-3 h-[2px] align-middle" style={{ background: '#64748b' }} />
+                    DPF1Y tasa inicial
                   </span>
                 </label>
+                {showDpfBaseline && (
+                  <div className="flex items-center gap-1 text-xs">
+                    <input
+                      type="text"
+                      inputMode="decimal"
+                      placeholder={`${(((getYieldBounds('IRX').initial + (getYieldBounds('FVX').initial - getYieldBounds('IRX').initial) * ((1 - 0.25) / (5 - 0.25))) + config.initialSpread) * 100).toFixed(2)}`}
+                      value={config.dpfRateOverride !== null ? (config.dpfRateOverride * 100).toFixed(2) : ''}
+                      onChange={(e) => {
+                        const txt = e.target.value.trim();
+                        if (txt === '') {
+                          setConfig({ dpfRateOverride: null });
+                        } else {
+                          const v = parseFloat(txt);
+                          if (Number.isFinite(v) && v >= 0 && v <= 50) {
+                            setConfig({ dpfRateOverride: v / 100 });
+                          }
+                        }
+                      }}
+                      className="w-16 px-2 py-1 rounded border border-mercantil-line dark:border-mercantil-dark-line bg-white dark:bg-mercantil-dark-panel text-mercantil-ink dark:text-mercantil-dark-ink text-xs text-right"
+                      title="Tasa nominal anual del DPF en t=0. Vacío = usar UST1Y inicial + spread."
+                    />
+                    <span className="text-mercantil-slate dark:text-mercantil-dark-slate">% nominal</span>
+                    {config.dpfRateOverride !== null && (
+                      <button
+                        onClick={() => setConfig({ dpfRateOverride: null })}
+                        className="text-mercantil-slate/60 hover:text-red-600 ml-1"
+                        title="Volver al default (UST1Y + spread)"
+                      >
+                        ×
+                      </button>
+                    )}
+                  </div>
+                )}
                 {savedVariants.length > 0 && (
                   <button
                     onClick={clearVariants}
@@ -926,12 +979,13 @@ export default function CaseStudyPanel() {
               Guardá el resultado actual con un nombre para overlayear su mediana en el fan chart. Útil para comparar
               C-conservador / C-equilibrado / C-agresivo sin perder de vista los números — pueden coexistir hasta {MAX_SAVED_VARIANTS} variantes.
               Cambiá la allocation, corré la simulación de nuevo y mirá las medianas overlayed.
-              El <strong>DPF1Y baseline</strong> es la línea de referencia "renovar depósito anualmente"
-              — <em>paired</em> con los mismos yield paths del bootstrap. Cada sim lockea la tasa al UST1Y vigente
-              en ese path + spread {(config.initialSpread * 10000).toFixed(0)} bp, y la renueva cada 12 meses.
-              La tasa inicial es {(dpfRateAnnual * 100).toFixed(2)}% nominal (con la curva de hoy). En el fan chart
-              se muestra la mediana del DPF sobre las {result.meta.nSims} sims; en el camino individual se muestra
-              el DPF de <strong>esa misma sim</strong> (que se mueve con sus tasas).
+              El <strong>DPF1Y baseline</strong> simula "renovar depósito a plazo cada 12 meses" — paired con los
+              mismos yield paths del bootstrap. La <strong>tasa inicial</strong> ({(dpfRateAnnual * 100).toFixed(2)}%
+              default vs {config.dpfRateOverride !== null ? `override ${(config.dpfRateOverride * 100).toFixed(2)}%` : 'sin override'}) define
+              el punto de partida; las renovaciones futuras mueven la tasa según el UST1Y simulado, preservando el
+              spread sobre treasury. Cuando el cliente trae una <strong>oferta concreta del banco</strong> ("me ofrecen DPF a 5.25%"),
+              poné ese valor en el campo y la línea queda anclada en esa tasa. El fan chart muestra bandas p5–p95 / p25–p75
+              del DPF para comparación de riesgo apples-to-apples con la estrategia.
             </p>
             <div className="flex flex-wrap items-center gap-2">
               {savedVariants.map((v) => (
@@ -1101,18 +1155,38 @@ export default function CaseStudyPanel() {
                     name="Capital + aportes acumulados"
                     isAnimationActive={false}
                   />
-                  {/* DPF1Y baseline mediana — del worker, paired con yield paths */}
+                  {/* DPF1Y bandas + mediana — del worker, paired con yield paths */}
                   {showDpfBaseline && (
-                    <Line
-                      type="monotone"
-                      dataKey="dpf"
-                      stroke="#64748b"
-                      strokeWidth={1.5}
-                      strokeDasharray="2 6"
-                      dot={false}
-                      name={`DPF1Y mediana (renovación anual)`}
-                      isAnimationActive={false}
-                    />
+                    <>
+                      <Area
+                        type="monotone"
+                        dataKey="dpfBand5095"
+                        stroke="none"
+                        fill="#64748b"
+                        fillOpacity={0.08}
+                        name="DPF p5–p95"
+                        isAnimationActive={false}
+                      />
+                      <Area
+                        type="monotone"
+                        dataKey="dpfBand2575"
+                        stroke="none"
+                        fill="#64748b"
+                        fillOpacity={0.18}
+                        name="DPF p25–p75"
+                        isAnimationActive={false}
+                      />
+                      <Line
+                        type="monotone"
+                        dataKey="dpf"
+                        stroke="#64748b"
+                        strokeWidth={1.5}
+                        strokeDasharray="2 6"
+                        dot={false}
+                        name="DPF1Y mediana (renovación anual)"
+                        isAnimationActive={false}
+                      />
+                    </>
                   )}
                   {/* Capital inicial: única línea verdaderamente horizontal */}
                   <ReferenceLine

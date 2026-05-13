@@ -42,6 +42,15 @@ export type CaseStudyConfig = {
   thresholds: RolloverThresholds;
   rolloverEnabled: boolean;
   cashBandUpper: number;
+  /**
+   * Override de la tasa inicial del DPF1Y baseline (decimal anual, e.g.,
+   * 0.0525 = 5.25%). Útil cuando el cliente trae una oferta concreta del
+   * banco. Si null, se usa UST1Y inicial + initialSpread (default).
+   * Renovaciones en t=12, 24, ... usan UST1Y(bootstrap) + spread implícito
+   * (override − UST1Y inicial), preservando el nivel ofertado en relación
+   * al treasury 1y.
+   */
+  dpfRateOverride: number | null;
 };
 
 export const DEFAULT_CASE_CONFIG: CaseStudyConfig = {
@@ -64,6 +73,7 @@ export const DEFAULT_CASE_CONFIG: CaseStudyConfig = {
   thresholds: { ...DEFAULT_ROLLOVER_THRESHOLDS },
   rolloverEnabled: true,
   cashBandUpper: 0.05,
+  dpfRateOverride: null,
 };
 
 /** Convierte CaseStudyConfig → ArenaJobInput aplicando defaults fijos. */
@@ -99,6 +109,7 @@ export function configToJobInput(config: CaseStudyConfig): ArenaJobInput {
     nSims: config.nSims,
     seed: config.seed,
     cashBandUpper: config.cashBandUpper,
+    dpfRateOverride: config.dpfRateOverride,
   };
 }
 
