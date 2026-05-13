@@ -116,15 +116,10 @@ export type ArenaJobInput = {
   maxBulletYears?: number | null;
 
   // ---- Cap mensual de equity ----
-  /**
-   * Si true (default en este worker), cashflowStep enforza la banda dura
-   * `eqtyMax` cada mes: el rebalanceo del exceso de cash diluye hacia
-   * bullets cuando equity está overweight, y vende exceso si el drift
-   * de mercado lo empuja por encima del cap. Si false, el cap solo se
-   * respeta en eventos de vencimiento de bullets (comportamiento
-   * histórico, preserva paridad con el motor Python).
-   */
-  enforceMonthlyEquityCap?: boolean;
+  // No expuesto en el ArenaJobInput público: el worker SIEMPRE enforza la
+  // banda dura eqtyMax cada mes. Para correr el motor sin el cap mensual
+  // (e.g., parity tests con el motor Python) usar runArena directamente
+  // desde TS pasando enforceMonthlyEquityCap=false en ArenaConfig.
 };
 
 export type ArenaJobOutput = {
@@ -322,10 +317,11 @@ function executeJob(id: string, payload: ArenaJobInput): {
     cashBandUpper: payload.cashBandUpper ?? 0.05,
     rolloverEnabled: payload.rolloverEnabled ?? true,
     dpfRateOverride: payload.dpfRateOverride ?? null,
-    // Default true en este worker: el caso de estudio quiere que la banda
-    // dura del rollover se respete mensualmente. Las parity tests con
-    // motor Python pasan false explícito para preservar comportamiento.
-    enforceMonthlyEquityCap: payload.enforceMonthlyEquityCap ?? true,
+    // Hardcoded true: el caso de estudio enforza la banda dura del
+    // rollover mensualmente, sin opción de desactivar desde el UI. Las
+    // parity tests usan runArena directo (no pasan por este worker) y
+    // pueden setear false vía ArenaConfig si necesitan la rama vieja.
+    enforceMonthlyEquityCap: true,
   };
   const arenaOut = runArena(config, market);
   const tArena1 =
