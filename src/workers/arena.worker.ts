@@ -107,6 +107,11 @@ export type ArenaJobOutput = {
   sleevePath: Float64Array;
   /** Loan balance path [nSims × (H+1)]. */
   loanBalancePath: Float64Array;
+  /**
+   * DPF1Y baseline per-sim — depósito 1y rolling con renovación anual usando
+   * los mismos yield paths que la estrategia (paired).
+   */
+  dpfBaselinePath: Float64Array;
   events: ArenaEvent[];
   regimeCounts: { A: number; B: number; C: number };
   stats: ArenaStats;
@@ -300,6 +305,7 @@ function executeJob(id: string, payload: ArenaJobInput): {
     netWealthPath: arenaOut.netWealthPath,
     sleevePath: arenaOut.sleevePath,
     loanBalancePath: arenaOut.loanBalancePath,
+    dpfBaselinePath: arenaOut.dpfBaselinePath,
     events: arenaOut.events,
     regimeCounts: arenaOut.regimeCounts,
     stats: arenaOut.stats,
@@ -322,6 +328,7 @@ function executeJob(id: string, payload: ArenaJobInput): {
     result.netWealthPath.buffer as ArrayBuffer,
     result.sleevePath.buffer as ArrayBuffer,
     result.loanBalancePath.buffer as ArrayBuffer,
+    result.dpfBaselinePath.buffer as ArrayBuffer,
     result.cumInterestPaid.buffer as ArrayBuffer,
     result.cumForcedEquitySales.buffer as ArrayBuffer,
     result.cumForcedBulletSales.buffer as ArrayBuffer,

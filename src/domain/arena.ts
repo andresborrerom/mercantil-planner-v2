@@ -97,6 +97,13 @@ export type ArenaMarket = {
     readonly TNX: Float32Array;
     readonly TYX: Float32Array;
   };
+  /**
+   * Curva inicial pre-bootstrap (yields al cierre del último mes histórico,
+   * IRX/FVX/TNX/TYX en decimal). Usada por DPF1Y baseline para lockear la
+   * tasa al t=0 antes de las renovaciones anuales. OPCIONAL: si no está,
+   * runArena cae back al yield path del sim 0 en mes 0.
+   */
+  initialCurve?: readonly [number, number, number, number];
   nSims: number;
   horizonMonths: number;
 };
@@ -140,6 +147,14 @@ export type ArenaOutput = {
   sleevePath: Float64Array;
   /** Loan balance per sim per mes. Row-major [nSims × (H+1)]. */
   loanBalancePath: Float64Array;
+  /**
+   * DPF1Y baseline path per-sim. Row-major [nSims × (H+1)].
+   * Modelo: depósito a plazo 1y rolling — la tasa se lockea al UST1Y del
+   * sim al inicio y se renueva cada 12 meses al UST1Y vigente en ese sim.
+   * Paired con los mismos yieldPaths que la estrategia → comparación
+   * apples-to-apples sim por sim.
+   */
+  dpfBaselinePath: Float64Array;
   /** Bullet holdings opcional, row-major [nSims × (H+1) × nTotal]. */
   bulletHoldings?: Float64Array;
   events: ArenaEvent[];
@@ -550,6 +565,45 @@ export function runArena(
     snapshot(t + 1);
   }
 
+  // ----- DPF1Y baseline per-sim (paired con los yield paths del bootstrap) -----
+  // Modelo: depósito a plazo 1y rolling. Cada 12 meses se renueva la tasa al
+  // UST1Y vigente en ese sim (interpolación lineal IRX→FVX a maturity 1y),
+  // más el initialSpread del plan (typicamente 110bp IG corp). La tasa
+  // permanece constante entre renovaciones. El balance compoundea
+  // mensualmente con la tasa lockeada e ingresa los inflows cada mes.
+  //
+  // Resultado paired: la sim s del DPF baseline ve los mismos yields que la
+  // sim s de la estrategia → comparación apples-to-apples sim por sim.
+  const dpfBaselinePath = new Float64Array(nSims * Hp1);
+  const DPF_SPREAD = plan.initialSpread;
+  const UST1Y_INTERP_K = (1.0 - 0.25) / (5.0 - 0.25); // interp lineal IRX→FVX a 1y
+  // Fallback: si market no trae initialCurve, usamos el yield al cierre del
+  // mes 0 del sim 0. Diferencia es pequeña (1 paso de simulación).
+  const irx0 = market.initialCurve?.[0] ?? market.yieldPaths.IRX[0];
+  const fvx0 = market.initialCurve?.[1] ?? market.yieldPaths.FVX[0];
+  const ust1y_initial = irx0 + (fvx0 - irx0) * UST1Y_INTERP_K;
+  const initial_dpf_rate = ust1y_initial + DPF_SPREAD;
+
+  for (let s = 0; s < nSims; s++) {
+    let balance = AUM0;
+    dpfBaselinePath[s * Hp1 + 0] = balance;
+    let lockedRate = initial_dpf_rate;
+    for (let t = 0; t < H; t++) {
+      // Renewal cada 12 meses (excepto t=0, que usa la tasa inicial)
+      if (t > 0 && t % 12 === 0) {
+        const yIdx = s * H + (t - 1); // yield al cierre del mes t-1
+        const irx = market.yieldPaths.IRX[yIdx];
+        const fvx = market.yieldPaths.FVX[yIdx];
+        const ust1y = irx + (fvx - irx) * UST1Y_INTERP_K;
+        lockedRate = ust1y + DPF_SPREAD;
+      }
+      // Carry mensual con la tasa lockeada + inflow del mes
+      balance = balance * (1 + lockedRate / 12);
+      balance += computeMonthlyInflow(t, inflowBaseAnnual, inflowGrowth);
+      dpfBaselinePath[s * Hp1 + (t + 1)] = balance;
+    }
+  }
+
   // ----- Stats -----
   const netWealthPath = new Float64Array(nSims * Hp1);
   for (let s = 0; s < nSims; s++) {
@@ -607,6 +661,7 @@ export function runArena(
   };
 
   const out: ArenaOutput = {
+    dpfBaselinePath,
     aumPath,
     netWealthPath,
     sleevePath,
@@ -704,6 +759,7 @@ export function buildArenaMarket(spec: BuildArenaMarketSpec): ArenaMarket {
     equityReturns,
     cashReturns: cashSeries,
     yieldPaths: spec.yieldPaths,
+    initialCurve: spec.initialCurve,
     nSims: spec.nSims,
     horizonMonths: spec.horizonMonths,
   };

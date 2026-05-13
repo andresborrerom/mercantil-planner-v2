@@ -281,34 +281,28 @@ export default function CaseStudyPanel() {
     }
   }, [config, worker, setStatus, setResult, setError]);
 
-  // DPF1Y baseline determinístico — simula "renovar depósito 1y a la tasa
-  // actual". Tasa = UST1Y inicial (interp lineal IRX/FVX a maturity 1y) +
-  // initialSpread (mismo spread IG que los bullets, para comparación fair).
-  // Compounding mensual + inflows acumulados. NO depende del bootstrap path
-  // (simplificación intencional: es la "línea de referencia estática" contra
-  // la cual comparar la estrategia). Cifras en $M.
-  const dpfBaselineSeries = useMemo<number[] | null>(() => {
+  // DPF1Y baseline mediana per-mes — viene del worker per-sim (paired con los
+  // yield paths del bootstrap). Cada 12 meses el sim lockea la tasa al UST1Y
+  // vigente en ese path + initialSpread. La mediana sobre las N sims te da la
+  // línea "típica" del DPF; en sims donde las tasas suben, ese sim del DPF
+  // captura tasas mejores en renovaciones futuras y termina más alto.
+  const dpfBaselineMedian = useMemo<number[] | null>(() => {
     if (!result) return null;
-    const irx = getYieldBounds('IRX').initial;
-    const fvx = getYieldBounds('FVX').initial;
-    // Interpolación lineal a 1y entre IRX (0.25y) y FVX (5y)
-    const k = (1.0 - 0.25) / (5.0 - 0.25);
-    const ust1y = irx + (fvx - irx) * k;
-    const ytm = ust1y + config.initialSpread;
-    const carryMonthly = ytm / 12;
-    const H = result.meta.horizonMonths;
+    const { nSims, horizonMonths } = result.meta;
+    const Hp1 = horizonMonths + 1;
     const series: number[] = [];
-    let balance = config.initialAumUsd;
-    series.push(balance / 1e6);
-    for (let t = 0; t < H; t++) {
-      balance = balance * (1 + carryMonthly);
-      balance += computeMonthlyInflow(t, config.inflowBaseAnnual, config.inflowGrowth);
-      series.push(balance / 1e6);
+    const col = new Float64Array(nSims);
+    for (let t = 0; t < Hp1; t++) {
+      for (let s = 0; s < nSims; s++) col[s] = result.dpfBaselinePath[s * Hp1 + t];
+      const sorted = Float64Array.from(col);
+      sorted.sort();
+      series.push(sorted[Math.floor(0.5 * (nSims - 1))] / 1e6);
     }
     return series;
-  }, [result, config.initialAumUsd, config.initialSpread, config.inflowBaseAnnual, config.inflowGrowth]);
+  }, [result]);
 
-  // Tasa anualizada nominal del DPF baseline (para mostrar en la UI)
+  // Tasa anualizada inicial del DPF (la del mes 0, antes de renovaciones).
+  // Para la UI label. Usa el initial curve del dataset.
   const dpfRateAnnual = useMemo(() => {
     const irx = getYieldBounds('IRX').initial;
     const fvx = getYieldBounds('FVX').initial;
@@ -380,9 +374,11 @@ export default function CaseStudyPanel() {
         deposit: cumDepositUsd / 1e6,
         p5, p25, p75, p95,
       };
-      // DPF baseline (mismo valor para todos los sims — línea determinística)
-      if (dpfBaselineSeries && dpfBaselineSeries[t] !== undefined) {
-        point.dpf = dpfBaselineSeries[t];
+      // DPF baseline: mediana sobre las N sims del DPF1Y rolling computado por
+      // el worker (paired con yield paths). Tiene varianza real porque la tasa
+      // se renueva con los yields de cada path.
+      if (dpfBaselineMedian && dpfBaselineMedian[t] !== undefined) {
+        point.dpf = dpfBaselineMedian[t];
       }
       // Overlay: mediana de cada variante guardada (si esa variante cubre el mes t)
       for (const v of savedVariants) {
@@ -397,7 +393,7 @@ export default function CaseStudyPanel() {
       }
     }
     return data;
-  }, [result, config.inflowBaseAnnual, config.inflowGrowth, savedVariants, variantMedians, dpfBaselineSeries]);
+  }, [result, config.inflowBaseAnnual, config.inflowGrowth, savedVariants, variantMedians, dpfBaselineMedian]);
 
   // Referencia simple: capital inicial es la única línea horizontal del chart.
   const initialAumM = result ? result.stats.initialAum / 1e6 : 0;
@@ -475,8 +471,10 @@ export default function CaseStudyPanel() {
         current: result.netWealthPath[singlePathSimIdx * Hp1 + t] / 1e6,
         deposit: cumDepositUsd / 1e6,
       };
-      if (dpfBaselineSeries && dpfBaselineSeries[t] !== undefined) {
-        point.dpf = dpfBaselineSeries[t];
+      // En camino individual, DPF usa el path de ESE sim específico (no la
+      // mediana). Mismo simIdx → paired con la estrategia.
+      if (singlePathSimIdx < result.meta.nSims) {
+        point.dpf = result.dpfBaselinePath[singlePathSimIdx * Hp1 + t] / 1e6;
       }
       for (const v of savedVariants) {
         const vH = v.result.meta.horizonMonths;
@@ -491,7 +489,7 @@ export default function CaseStudyPanel() {
       }
     }
     return data;
-  }, [result, savedVariants, singlePathSimIdx, config.inflowBaseAnnual, config.inflowGrowth, dpfBaselineSeries]);
+  }, [result, savedVariants, singlePathSimIdx, config.inflowBaseAnnual, config.inflowGrowth]);
 
   // Y domain del single path: ajusta solo a la data dentro del window (igual
   // que el fan chart) considerando current + cada variante.
@@ -911,7 +909,7 @@ export default function CaseStudyPanel() {
                   <span>
                     Mostrar DPF1Y baseline (
                     <span className="inline-block w-3 h-[2px] align-middle mr-0.5" style={{ background: '#64748b' }} />
-                    <span className="font-medium">{(dpfRateAnnual * 100).toFixed(2)}%</span>)
+                    inicial <span className="font-medium">{(dpfRateAnnual * 100).toFixed(2)}%</span>)
                   </span>
                 </label>
                 {savedVariants.length > 0 && (
@@ -928,9 +926,12 @@ export default function CaseStudyPanel() {
               Guardá el resultado actual con un nombre para overlayear su mediana en el fan chart. Útil para comparar
               C-conservador / C-equilibrado / C-agresivo sin perder de vista los números — pueden coexistir hasta {MAX_SAVED_VARIANTS} variantes.
               Cambiá la allocation, corré la simulación de nuevo y mirá las medianas overlayed.
-              El <strong>DPF1Y baseline</strong> es la línea de referencia "renovar depósito anualmente a la tasa actual" —
-              tasa fija {(dpfRateAnnual * 100).toFixed(2)}% nominal (UST1Y inicial + spread {(config.initialSpread * 10000).toFixed(0)} bp),
-              compounding mensual, mismos aportes. Te dice cuándo la estrategia realmente agrega valor sobre el baseline pasivo.
+              El <strong>DPF1Y baseline</strong> es la línea de referencia "renovar depósito anualmente"
+              — <em>paired</em> con los mismos yield paths del bootstrap. Cada sim lockea la tasa al UST1Y vigente
+              en ese path + spread {(config.initialSpread * 10000).toFixed(0)} bp, y la renueva cada 12 meses.
+              La tasa inicial es {(dpfRateAnnual * 100).toFixed(2)}% nominal (con la curva de hoy). En el fan chart
+              se muestra la mediana del DPF sobre las {result.meta.nSims} sims; en el camino individual se muestra
+              el DPF de <strong>esa misma sim</strong> (que se mueve con sus tasas).
             </p>
             <div className="flex flex-wrap items-center gap-2">
               {savedVariants.map((v) => (
@@ -1100,7 +1101,7 @@ export default function CaseStudyPanel() {
                     name="Capital + aportes acumulados"
                     isAnimationActive={false}
                   />
-                  {/* DPF1Y baseline (línea determinística "renovar 1y a tasa actual") */}
+                  {/* DPF1Y baseline mediana — del worker, paired con yield paths */}
                   {showDpfBaseline && (
                     <Line
                       type="monotone"
@@ -1109,7 +1110,7 @@ export default function CaseStudyPanel() {
                       strokeWidth={1.5}
                       strokeDasharray="2 6"
                       dot={false}
-                      name={`DPF1Y baseline (${(dpfRateAnnual * 100).toFixed(2)}% nominal)`}
+                      name={`DPF1Y mediana (renovación anual)`}
                       isAnimationActive={false}
                     />
                   )}
@@ -1277,7 +1278,7 @@ export default function CaseStudyPanel() {
                       name="Capital + aportes acumulados"
                       isAnimationActive={false}
                     />
-                    {/* DPF1Y baseline en single path — misma línea determinística que el fan chart */}
+                    {/* DPF1Y para este sim específico — paired con la trayectoria de tasas */}
                     {showDpfBaseline && (
                       <Line
                         type="monotone"
@@ -1286,7 +1287,7 @@ export default function CaseStudyPanel() {
                         strokeWidth={1.5}
                         strokeDasharray="2 6"
                         dot={false}
-                        name={`DPF1Y baseline (${(dpfRateAnnual * 100).toFixed(2)}% nominal)`}
+                        name={`DPF1Y (este sim · renovación anual)`}
                         isAnimationActive={false}
                       />
                     )}
