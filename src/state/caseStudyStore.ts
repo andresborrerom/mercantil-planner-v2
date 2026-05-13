@@ -102,11 +102,32 @@ export function configToJobInput(config: CaseStudyConfig): ArenaJobInput {
   };
 }
 
+/**
+ * Variante guardada — snapshot del config + result actuales con un label
+ * descriptivo. Permite overlay de medianas en el fan chart sin perder el
+ * resultado activo. Útil para comparar C-conservador / C-equilibrado /
+ * C-agresivo en paralelo sobre los mismos paths del bootstrap.
+ */
+export type SavedVariant = {
+  id: string;
+  label: string;
+  config: CaseStudyConfig;
+  result: ArenaJobOutput;
+  color: string; // tailwind/css color hex para el overlay
+};
+
+/** Máximo de variantes guardadas simultáneamente (por memoria y legibilidad). */
+export const MAX_SAVED_VARIANTS = 4;
+
+/** Colores para overlays. Cyclán cuando se guardan variantes. */
+const VARIANT_COLORS = ['#3a8a4e', '#7c3aed', '#0d9488', '#dc2626'] as const;
+
 type CaseStudyState = {
   config: CaseStudyConfig;
   status: CaseStudyStatus;
   result: ArenaJobOutput | null;
   error: string | null;
+  savedVariants: SavedVariant[];
   // Actions
   setConfig: (patch: Partial<CaseStudyConfig>) => void;
   setThreshold: (key: keyof RolloverThresholds, value: number) => void;
@@ -114,6 +135,9 @@ type CaseStudyState = {
   setStatus: (status: CaseStudyStatus) => void;
   setResult: (result: ArenaJobOutput) => void;
   setError: (error: string) => void;
+  saveCurrentAsVariant: (label: string) => void;
+  removeVariant: (id: string) => void;
+  clearVariants: () => void;
 };
 
 export const useCaseStudyStore = create<CaseStudyState>((set) => ({
@@ -121,6 +145,7 @@ export const useCaseStudyStore = create<CaseStudyState>((set) => ({
   status: 'idle',
   result: null,
   error: null,
+  savedVariants: [],
   setConfig: (patch) =>
     set((s) => ({ config: { ...s.config, ...patch } })),
   setThreshold: (key, value) =>
@@ -131,4 +156,22 @@ export const useCaseStudyStore = create<CaseStudyState>((set) => ({
   setStatus: (status) => set({ status }),
   setResult: (result) => set({ result, status: 'done', error: null }),
   setError: (error) => set({ error, status: 'error' }),
+  saveCurrentAsVariant: (label) =>
+    set((s) => {
+      if (!s.result) return s;
+      if (s.savedVariants.length >= MAX_SAVED_VARIANTS) return s;
+      const used = new Set(s.savedVariants.map((v) => v.color));
+      const color = VARIANT_COLORS.find((c) => !used.has(c)) ?? VARIANT_COLORS[0];
+      const id = `v-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
+      const cleanLabel = label.trim() || `Variante ${s.savedVariants.length + 1}`;
+      return {
+        savedVariants: [
+          ...s.savedVariants,
+          { id, label: cleanLabel, config: { ...s.config }, result: s.result, color },
+        ],
+      };
+    }),
+  removeVariant: (id) =>
+    set((s) => ({ savedVariants: s.savedVariants.filter((v) => v.id !== id) })),
+  clearVariants: () => set({ savedVariants: [] }),
 }));

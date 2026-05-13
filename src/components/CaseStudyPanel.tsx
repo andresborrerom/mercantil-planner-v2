@@ -35,6 +35,7 @@ import { useArenaWorker } from '../hooks/useArenaWorker';
 import {
   configToJobInput,
   DEFAULT_CASE_CONFIG,
+  MAX_SAVED_VARIANTS,
   useCaseStudyStore,
   type CaseStudyConfig,
 } from '../state/caseStudyStore';
@@ -216,6 +217,11 @@ export default function CaseStudyPanel() {
   const setStatus = useCaseStudyStore((s) => s.setStatus);
   const setResult = useCaseStudyStore((s) => s.setResult);
   const setError = useCaseStudyStore((s) => s.setError);
+  const savedVariants = useCaseStudyStore((s) => s.savedVariants);
+  const saveCurrentAsVariant = useCaseStudyStore((s) => s.saveCurrentAsVariant);
+  const removeVariant = useCaseStudyStore((s) => s.removeVariant);
+  const clearVariants = useCaseStudyStore((s) => s.clearVariants);
+  const [variantLabel, setVariantLabel] = useState('');
 
   const [showAdvanced, setShowAdvanced] = useState(false);
   const worker = useArenaWorker();
@@ -244,7 +250,27 @@ export default function CaseStudyPanel() {
     }
   }, [config, worker, setStatus, setResult, setError]);
 
-  // ---- Chart data (memo: solo recomputa cuando cambia result) ----
+  // Medianas pre-computadas por variante guardada (mes a mes).
+  // Memo separado para no recomputar al cambiar inflows del config actual.
+  const variantMedians = useMemo<Record<string, number[]>>(() => {
+    const out: Record<string, number[]> = {};
+    for (const v of savedVariants) {
+      const { nSims, horizonMonths } = v.result.meta;
+      const Hp1 = horizonMonths + 1;
+      const col = new Float64Array(nSims);
+      const series: number[] = [];
+      for (let t = 0; t < Hp1; t++) {
+        for (let s = 0; s < nSims; s++) col[s] = v.result.netWealthPath[s * Hp1 + t];
+        const sorted = Float64Array.from(col);
+        sorted.sort();
+        series.push(sorted[Math.floor(0.5 * (nSims - 1))] / 1e6);
+      }
+      out[v.id] = series;
+    }
+    return out;
+  }, [savedVariants]);
+
+  // ---- Chart data (memo: solo recomputa cuando cambia result, config o variantes) ----
   // Bands se guardan como tuplas [lower, upper] para que recharts pinte solo
   // el rango entre p5-p95 / p25-p75 (no desde 0 hasta el valor). Mismo patrón
   // que el FanChart original del Comparador A/B.
@@ -253,24 +279,25 @@ export default function CaseStudyPanel() {
   // en initialAUM y crece cada mes por el inflow correspondiente. NO es una
   // línea horizontal — es una piecewise-linear que sube con cada aporte. Con
   // growth=0 queda casi recta; con growth>0 los escalones se aceleran cada año.
+  //
+  // Cada variante guardada agrega un campo dinámico `v_<variantId>` con la
+  // mediana de ESA variante en cada mes, para overlay en el chart.
   const wealthChartData = useMemo(() => {
     if (!result) return [];
     const { nSims, horizonMonths } = result.meta;
     const Hp1 = horizonMonths + 1;
     const ps = [0.05, 0.25, 0.5, 0.75, 0.95];
     const netPct = pctPath(result.netWealthPath, nSims, Hp1, ps);
-    const data: {
+    type Point = {
       month: number;
       p50: number;
       band5095: [number, number];
       band2575: [number, number];
-      deposit: number; // capital + aportes acumulados hasta el cierre del mes t
-      // Para tooltip individual:
-      p5: number;
-      p25: number;
-      p75: number;
-      p95: number;
-    }[] = [];
+      deposit: number;
+      p5: number; p25: number; p75: number; p95: number;
+      [variantKey: string]: number | [number, number];
+    };
+    const data: Point[] = [];
     let cumDepositUsd = result.stats.initialAum;
     for (let t = 0; t < Hp1; t++) {
       const p5 = netPct[t][0] / 1e6;
@@ -278,23 +305,28 @@ export default function CaseStudyPanel() {
       const p50 = netPct[t][2] / 1e6;
       const p75 = netPct[t][3] / 1e6;
       const p95 = netPct[t][4] / 1e6;
-      data.push({
+      const point: Point = {
         month: t,
         p50,
         band5095: [p5, p95],
         band2575: [p25, p75],
         deposit: cumDepositUsd / 1e6,
         p5, p25, p75, p95,
-      });
+      };
+      // Overlay: mediana de cada variante guardada (si esa variante cubre el mes t)
+      for (const v of savedVariants) {
+        const m = variantMedians[v.id]?.[t];
+        if (m !== undefined) point[`v_${v.id}`] = m;
+      }
+      data.push(point);
       // Inflow del mes t se acumula DESPUÉS de capturar el deposit del mes t,
       // así data[0].deposit = initial y data[1].deposit = initial + inflow_0.
-      // Matchea el orden de cashflowStep en arena (inflow llega en step t).
       if (t < horizonMonths) {
         cumDepositUsd += computeMonthlyInflow(t, config.inflowBaseAnnual, config.inflowGrowth);
       }
     }
     return data;
-  }, [result, config.inflowBaseAnnual, config.inflowGrowth]);
+  }, [result, config.inflowBaseAnnual, config.inflowGrowth, savedVariants, variantMedians]);
 
   // Referencia simple: capital inicial es la única línea horizontal del chart.
   const initialAumM = result ? result.stats.initialAum / 1e6 : 0;
@@ -325,15 +357,22 @@ export default function CaseStudyPanel() {
       if (p.p95 > max) max = p.p95;
       if (p.deposit < min) min = p.deposit;
       if (p.deposit > max) max = p.deposit;
+      // Incluir medianas de variantes si están en la ventana
+      for (const v of savedVariants) {
+        const m = p[`v_${v.id}`];
+        if (typeof m === 'number') {
+          if (m < min) min = m;
+          if (m > max) max = m;
+        }
+      }
     }
-    // Incluir capital inicial (horizontal) si cae dentro de la ventana
     if (initialAumM < min) min = initialAumM;
     if (initialAumM > max) max = initialAumM;
     if (!Number.isFinite(min) || !Number.isFinite(max)) return [0, 1];
     const range = max - min;
     const pad = range > 0 ? range * 0.05 : Math.abs(max) * 0.05 || 0.1;
     return [Math.max(0, min - pad), max + pad];
-  }, [result, window, wealthChartData, initialAumM]);
+  }, [result, window, wealthChartData, initialAumM, savedVariants]);
 
   // Chips de período rápido. 15y y 20y solo se muestran si el horizonte de la
   // simulación los cubre. El chip "Total" queda al final con el horizonte exacto.
@@ -688,29 +727,96 @@ export default function CaseStudyPanel() {
           {/* Detalle de sleeves (collapsible) */}
           <SleevesDetailPanel config={config} />
 
-          {/* Regime + loan breakdown */}
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <div className="bg-white dark:bg-mercantil-dark-panel rounded-lg border border-mercantil-line dark:border-mercantil-dark-line p-5">
-              <h3 className="text-sm uppercase tracking-wider text-mercantil-slate dark:text-mercantil-dark-slate font-medium mb-3">
-                Rollover: regímenes ({totalEvents} eventos × sim)
+          {/* Rollover regimes — panel explicativo con barras + cards collapsible */}
+          <RegimesDetailPanel result={result} config={config} totalEvents={totalEvents} />
+
+          {/* Préstamo costos */}
+          <div className="bg-white dark:bg-mercantil-dark-panel rounded-lg border border-mercantil-line dark:border-mercantil-dark-line p-5">
+            <h3 className="text-sm uppercase tracking-wider text-mercantil-slate dark:text-mercantil-dark-slate font-medium mb-3">
+              Préstamo: costos & ventas forzadas (medianas)
+            </h3>
+            <div className="space-y-2 text-sm">
+              <LoanRow label="Interés total pagado" value={fmtMoney(result.stats.loanCumInterestMed)} />
+              <LoanRow label="Ventas forzadas equity" value={fmtMoney(result.stats.forcedEquityMed)} />
+              <LoanRow label="Ventas forzadas bullet" value={fmtMoney(result.stats.forcedBulletMed)} />
+              <LoanRow label="Shortfall acumulado" value={fmtMoney(result.stats.loanShortfallMed)} />
+            </div>
+          </div>
+
+          {/* Comparador de variantes (strip de save/list/clear) */}
+          <div className="bg-white dark:bg-mercantil-dark-panel rounded-lg border border-mercantil-line dark:border-mercantil-dark-line p-5">
+            <div className="flex items-center justify-between mb-2">
+              <h3 className="text-sm uppercase tracking-wider text-mercantil-slate dark:text-mercantil-dark-slate font-medium">
+                Comparador de variantes
               </h3>
-              <div className="space-y-2">
-                <RegimeBar label="A (tasas altas + slope steep)" count={result.regimeCounts.A} total={totalEvents} colorClass="bg-emerald-500" />
-                <RegimeBar label="B (tasas bajas o curva flat)" count={result.regimeCounts.B} total={totalEvents} colorClass="bg-amber-500" />
-                <RegimeBar label="C (zona neutral)" count={result.regimeCounts.C} total={totalEvents} colorClass="bg-mercantil-navy" />
+              {savedVariants.length > 0 && (
+                <button
+                  onClick={clearVariants}
+                  className="text-xs text-mercantil-slate dark:text-mercantil-dark-slate hover:text-red-600"
+                >
+                  Limpiar todas
+                </button>
+              )}
+            </div>
+            <p className="text-xs text-mercantil-slate dark:text-mercantil-dark-slate mb-3">
+              Guardá el resultado actual con un nombre para overlayear su mediana en el fan chart. Útil para comparar
+              C-conservador / C-equilibrado / C-agresivo sin perder de vista los números — pueden coexistir hasta {MAX_SAVED_VARIANTS} variantes.
+              Cambiá la allocation, corré la simulación de nuevo y mirá las medianas overlayed.
+            </p>
+            <div className="flex flex-wrap items-center gap-2">
+              {savedVariants.map((v) => (
+                <span
+                  key={v.id}
+                  className="inline-flex items-center gap-1.5 px-2 py-1 rounded-full text-xs border"
+                  style={{ borderColor: v.color, color: v.color }}
+                >
+                  <span className="inline-block w-2 h-2 rounded-full" style={{ background: v.color }} />
+                  {v.label}
+                  <button
+                    onClick={() => removeVariant(v.id)}
+                    className="ml-1 hover:opacity-60"
+                    aria-label={`Quitar ${v.label}`}
+                  >
+                    ×
+                  </button>
+                </span>
+              ))}
+              <div className="flex items-center gap-1 ml-auto">
+                <input
+                  type="text"
+                  placeholder={`p.ej. "C-equilibrado 65/30/5"`}
+                  value={variantLabel}
+                  onChange={(e) => setVariantLabel(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' && savedVariants.length < MAX_SAVED_VARIANTS) {
+                      saveCurrentAsVariant(variantLabel);
+                      setVariantLabel('');
+                    }
+                  }}
+                  className="px-2 py-1 text-xs rounded border border-mercantil-line dark:border-mercantil-dark-line bg-white dark:bg-mercantil-dark-panel w-56"
+                />
+                <button
+                  onClick={() => {
+                    saveCurrentAsVariant(variantLabel);
+                    setVariantLabel('');
+                  }}
+                  disabled={savedVariants.length >= MAX_SAVED_VARIANTS}
+                  className="px-3 py-1 text-xs rounded bg-mercantil-navy text-white hover:bg-mercantil-navy/90 disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  Guardar run actual
+                </button>
               </div>
             </div>
-            <div className="bg-white dark:bg-mercantil-dark-panel rounded-lg border border-mercantil-line dark:border-mercantil-dark-line p-5">
-              <h3 className="text-sm uppercase tracking-wider text-mercantil-slate dark:text-mercantil-dark-slate font-medium mb-3">
-                Préstamo: costos & ventas forzadas (medianas)
-              </h3>
-              <div className="space-y-2 text-sm">
-                <LoanRow label="Interés total pagado" value={fmtMoney(result.stats.loanCumInterestMed)} />
-                <LoanRow label="Ventas forzadas equity" value={fmtMoney(result.stats.forcedEquityMed)} />
-                <LoanRow label="Ventas forzadas bullet" value={fmtMoney(result.stats.forcedBulletMed)} />
-                <LoanRow label="Shortfall acumulado" value={fmtMoney(result.stats.loanShortfallMed)} />
-              </div>
-            </div>
+            {savedVariants.length === 0 && (
+              <p className="mt-2 text-xs text-mercantil-slate/60 dark:text-mercantil-dark-slate/60 italic">
+                Aún no hay variantes guardadas. Asigná un nombre a la run actual y click "Guardar run actual" para anclarla al fan chart.
+              </p>
+            )}
+            {savedVariants.length >= MAX_SAVED_VARIANTS && (
+              <p className="mt-2 text-xs text-amber-600 dark:text-amber-400">
+                Llegaste al máximo de {MAX_SAVED_VARIANTS} variantes. Quitá alguna para guardar otra.
+              </p>
+            )}
           </div>
 
           {/* Wealth fan chart */}
@@ -723,6 +829,9 @@ export default function CaseStudyPanel() {
               (p5–p95) de los caminos posibles. La línea gris punteada es el capital inicial; la verde es capital + aportes
               acumulados (el piso de "solo ahorrar sin invertir"). La propuesta agrega valor si el camino mediano queda
               por encima de la verde.
+              {savedVariants.length > 0 && (
+                <> Las líneas de colores son medianas de variantes guardadas para comparar.</>
+              )}
             </p>
             <div className="h-80">
               <ResponsiveContainer width="100%" height="100%">
@@ -791,9 +900,24 @@ export default function CaseStudyPanel() {
                     stroke="#F58220"
                     strokeWidth={2}
                     dot={false}
-                    name="Mediana"
+                    name="Mediana (run actual)"
                     isAnimationActive={false}
                   />
+                  {/* Overlay de medianas de variantes guardadas. Cada una con
+                       su color asignado en el store al guardarse. */}
+                  {savedVariants.map((v) => (
+                    <Line
+                      key={v.id}
+                      type="monotone"
+                      dataKey={`v_${v.id}`}
+                      stroke={v.color}
+                      strokeWidth={1.75}
+                      dot={false}
+                      name={v.label}
+                      isAnimationActive={false}
+                      connectNulls
+                    />
+                  ))}
                   {/* Serie deposit: capital inicial + aportes acumulados mes a mes.
                        Es una línea creciente (no horizontal) que arranca en el
                        capital y sube por cada inflow. */}
@@ -967,6 +1091,220 @@ function LoanRow({ label, value }: { label: string; value: string }) {
     <div className="flex items-center justify-between">
       <span className="text-mercantil-slate dark:text-mercantil-dark-slate">{label}</span>
       <span className="font-semibold text-mercantil-ink dark:text-mercantil-dark-ink">{value}</span>
+    </div>
+  );
+}
+
+// =====================================================================
+// REGIMES DETAIL — explicación didáctica de los 3 regímenes A/B/C
+// =====================================================================
+
+type ArenaJobOutputForRegimes = {
+  regimeCounts: { A: number; B: number; C: number };
+};
+
+function RegimesDetailPanel({
+  result,
+  config,
+  totalEvents,
+}: {
+  result: ArenaJobOutputForRegimes;
+  config: CaseStudyConfig;
+  totalEvents: number;
+}) {
+  const th = config.thresholds;
+  const pct = (n: number) => (totalEvents > 0 ? (n / totalEvents) * 100 : 0);
+  const pctA = pct(result.regimeCounts.A);
+  const pctB = pct(result.regimeCounts.B);
+  const pctC = pct(result.regimeCounts.C);
+  const xToEqPct = (th.xToEquity * 100).toFixed(0);
+  const thetaHighPct = (th.thetaHigh * 100).toFixed(2);
+  const thetaLowPct = (th.thetaLow * 100).toFixed(2);
+  const thetaSteepBp = (th.thetaSteep * 10000).toFixed(0);
+  const thetaFlatBp = (th.thetaFlat * 10000).toFixed(0);
+  const eqtyMaxPct = (config.eqtyMax * 100).toFixed(0);
+
+  return (
+    <div className="bg-white dark:bg-mercantil-dark-panel rounded-lg border border-mercantil-line dark:border-mercantil-dark-line p-5">
+      <h3 className="text-sm uppercase tracking-wider text-mercantil-slate dark:text-mercantil-dark-slate font-medium mb-1">
+        Rollover táctico — regímenes A/B/C
+      </h3>
+      <p className="text-xs text-mercantil-slate dark:text-mercantil-dark-slate mb-3">
+        Cuando vence un bullet, la regla observa el estado de la curva treasury y clasifica el momento en
+        uno de tres regímenes. Cada uno tiene una acción específica para el principal liberado.
+        Los conteos abajo son <strong>{totalEvents.toLocaleString()} eventos × simulación</strong> (cada bullet
+        × cada sim que lo vio vencer). La distribución te dice <strong>qué tipo de mercado dominó</strong> a lo
+        largo de las simulaciones.
+      </p>
+
+      {/* Barras compactas con % */}
+      <div className="space-y-2 mb-4">
+        <RegimeBar label="A · tasas altas + slope steep" count={result.regimeCounts.A} total={totalEvents} colorClass="bg-emerald-500" />
+        <RegimeBar label="B · tasas bajas o curva flat/invertida" count={result.regimeCounts.B} total={totalEvents} colorClass="bg-amber-500" />
+        <RegimeBar label="C · zona neutral" count={result.regimeCounts.C} total={totalEvents} colorClass="bg-mercantil-navy" />
+      </div>
+
+      <p className="text-xs text-mercantil-slate dark:text-mercantil-dark-slate mb-3">
+        Lectura inmediata: <strong>{pctA.toFixed(1)}% A / {pctB.toFixed(1)}% B / {pctC.toFixed(1)}% C</strong>.
+        {pctB > 50 && ' La dominancia de B refleja que el bootstrap muestrea mucho 2009–2021 (era de tasas bajas).'}
+        {pctA > 30 && ' La presencia material de A sugiere que el modelo capturó periodos de tasas elevadas.'}
+      </p>
+
+      <div className="space-y-2">
+        {/* RÉGIMEN A */}
+        <details className="rounded border border-mercantil-line dark:border-mercantil-dark-line">
+          <summary className="px-4 py-3 cursor-pointer flex items-center justify-between bg-mercantil-bg-soft/30">
+            <span className="flex items-center gap-2">
+              <span className="inline-block w-3 h-3 rounded-sm bg-emerald-500" />
+              <strong className="text-mercantil-ink dark:text-mercantil-dark-ink">Régimen A — tasas altas + curva pronunciada</strong>
+              <span className="text-xs text-mercantil-slate dark:text-mercantil-dark-slate">
+                {pctA.toFixed(1)}% de eventos
+              </span>
+            </span>
+            <span className="text-xs text-mercantil-orange">click para detalle ▾</span>
+          </summary>
+          <div className="px-4 pb-4 pt-2 text-sm space-y-3">
+            <div>
+              <div className="font-semibold text-mercantil-ink dark:text-mercantil-dark-ink text-xs uppercase tracking-wider mb-1">
+                Condición de disparo
+              </div>
+              <p className="text-xs">
+                TNX (yield 10y) <strong>&gt; θ_high = {thetaHighPct}%</strong> <em>Y</em> slope (TNX − IRX)
+                <strong> &gt; θ_steep = {thetaSteepBp} bp</strong>. Tasas largas elevadas Y curva con prima de
+                plazo positiva amplia. Es el escenario clásico de "fin de ciclo de subidas con expectativa de
+                cortar pronto" — el bono largo paga mucho carry, hay convicción de duración.
+              </p>
+            </div>
+            <div>
+              <div className="font-semibold text-mercantil-ink dark:text-mercantil-dark-ink text-xs uppercase tracking-wider mb-1">
+                Acción al vencer un bullet
+              </div>
+              <p className="text-xs">
+                Principal vencido → <strong>bullet sintético siguiente (el más largo del ladder)</strong>.
+                Además, si el equity está por encima de la banda <strong>{eqtyMaxPct}%</strong>, se trim el
+                exceso y se suma también al bullet largo. El intent es <strong>cargar duración</strong> mientras
+                las tasas siguen altas: el carry compensa, y si las tasas bajan después, el roll-down captura
+                ganancia adicional.
+              </p>
+            </div>
+            <div>
+              <div className="font-semibold text-mercantil-ink dark:text-mercantil-dark-ink text-xs uppercase tracking-wider mb-1">
+                Cuándo es bueno que A esté presente
+              </div>
+              <p className="text-xs">
+                Una proporción de A entre 15–25% es señal de un bootstrap balanceado que captura
+                periodos como 2007 o 2023. Si es &gt;40%, el bootstrap está sobre-ponderando esos años
+                — revisar la ventana histórica. Si es &lt;5%, el modelo casi nunca ve "mercado de carry alto"
+                — perdés la oportunidad de extender duración.
+              </p>
+            </div>
+          </div>
+        </details>
+
+        {/* RÉGIMEN B */}
+        <details className="rounded border border-mercantil-line dark:border-mercantil-dark-line">
+          <summary className="px-4 py-3 cursor-pointer flex items-center justify-between bg-mercantil-bg-soft/30">
+            <span className="flex items-center gap-2">
+              <span className="inline-block w-3 h-3 rounded-sm bg-amber-500" />
+              <strong className="text-mercantil-ink dark:text-mercantil-dark-ink">Régimen B — tasas bajas o curva flat/invertida</strong>
+              <span className="text-xs text-mercantil-slate dark:text-mercantil-dark-slate">
+                {pctB.toFixed(1)}% de eventos
+              </span>
+            </span>
+            <span className="text-xs text-mercantil-orange">click para detalle ▾</span>
+          </summary>
+          <div className="px-4 pb-4 pt-2 text-sm space-y-3">
+            <div>
+              <div className="font-semibold text-mercantil-ink dark:text-mercantil-dark-ink text-xs uppercase tracking-wider mb-1">
+                Condición de disparo
+              </div>
+              <p className="text-xs">
+                <strong>NO se cumple A</strong> Y al menos una de: TNX <strong>&lt; θ_low = {thetaLowPct}%</strong>
+                <em> O </em> slope <strong>&lt; θ_flat = {thetaFlatBp} bp</strong>. Es el escenario de "RF cara,
+                equity barato relativo": las tasas largas no compensan duración, la curva flat o invertida
+                sugiere expectativa de recesión / corte de tasas.
+              </p>
+            </div>
+            <div>
+              <div className="font-semibold text-mercantil-ink dark:text-mercantil-dark-ink text-xs uppercase tracking-wider mb-1">
+                Acción al vencer un bullet
+              </div>
+              <p className="text-xs">
+                Split del principal: <strong>(1 − X) = {(100 - parseFloat(xToEqPct))}%</strong> al bullet sintético
+                largo, <strong>X = {xToEqPct}%</strong> al sleeve equity (sujeto a banda dura <strong>{eqtyMaxPct}%</strong>).
+                Si el equity ya está en el tope, lo que sobra va al bullet. El intent es <strong>reciclar capital
+                al activo más barato relativo</strong>: cuando RF está cara, rotamos parte hacia equity defensivo;
+                cuando equity también está caro (banda llena), nos quedamos en RF.
+              </p>
+            </div>
+            <div>
+              <div className="font-semibold text-mercantil-ink dark:text-mercantil-dark-ink text-xs uppercase tracking-wider mb-1">
+                Cuándo es bueno que B esté presente
+              </div>
+              <p className="text-xs">
+                B es el régimen del bootstrap moderno (2010–2021 fue casi todo B en USA). Es esperable que
+                domine si la ventana histórica incluye QE. <strong>{pctB.toFixed(0)}% B</strong> con el bootstrap
+                actual de 2006–2026 está dentro de lo normal. El parámetro <strong>X = {xToEqPct}%</strong> es
+                el más sensible para diferenciar perfiles: conservador 30%, equilibrado 40%, agresivo 50%.
+              </p>
+            </div>
+          </div>
+        </details>
+
+        {/* RÉGIMEN C */}
+        <details className="rounded border border-mercantil-line dark:border-mercantil-dark-line">
+          <summary className="px-4 py-3 cursor-pointer flex items-center justify-between bg-mercantil-bg-soft/30">
+            <span className="flex items-center gap-2">
+              <span className="inline-block w-3 h-3 rounded-sm bg-mercantil-navy" />
+              <strong className="text-mercantil-ink dark:text-mercantil-dark-ink">Régimen C — zona neutral</strong>
+              <span className="text-xs text-mercantil-slate dark:text-mercantil-dark-slate">
+                {pctC.toFixed(1)}% de eventos
+              </span>
+            </span>
+            <span className="text-xs text-mercantil-orange">click para detalle ▾</span>
+          </summary>
+          <div className="px-4 pb-4 pt-2 text-sm space-y-3">
+            <div>
+              <div className="font-semibold text-mercantil-ink dark:text-mercantil-dark-ink text-xs uppercase tracking-wider mb-1">
+                Condición de disparo
+              </div>
+              <p className="text-xs">
+                <strong>NO A, NO B</strong>. Tasas en zona intermedia (entre θ_low y θ_high) y curva con slope
+                moderado (entre θ_flat y θ_steep). El "estado base" de mercado normal — sin señales fuertes
+                ni a favor de duración ni a favor de equity.
+              </p>
+            </div>
+            <div>
+              <div className="font-semibold text-mercantil-ink dark:text-mercantil-dark-ink text-xs uppercase tracking-wider mb-1">
+                Acción al vencer un bullet
+              </div>
+              <p className="text-xs">
+                <strong>100% al bullet sintético siguiente</strong>. Se extiende la escalera tal cual, sin
+                operaciones tácticas. La acción default cuando no hay señal clara. Mantiene la duración
+                estructural del ladder y no introduce ruido por trading en mercados sin convicción.
+              </p>
+            </div>
+            <div>
+              <div className="font-semibold text-mercantil-ink dark:text-mercantil-dark-ink text-xs uppercase tracking-wider mb-1">
+                Cuándo es bueno que C esté presente
+              </div>
+              <p className="text-xs">
+                C ~20–30% es saludable — refleja que no todo el mercado está en extremo. Si es &gt;50%,
+                el motor casi nunca está tomando decisiones tácticas (los thresholds son demasiado laxos);
+                ajustar θ_high abajo y θ_steep abajo. Si es &lt;10%, el motor está siempre en modo táctico
+                (los thresholds son demasiado estrictos); ajustar al revés.
+              </p>
+            </div>
+          </div>
+        </details>
+      </div>
+
+      <div className="mt-4 p-3 rounded bg-mercantil-bg-soft/40 border border-mercantil-line dark:border-mercantil-dark-line text-xs">
+        <strong className="text-mercantil-ink dark:text-mercantil-dark-ink">Para la junta:</strong>{' '}
+        la regla A/B/C no es una decisión discrecional — es una <strong>regla escrita, paired bootstrap,
+        determinista dado el seed</strong>. Mercantil opera la regla; la junta calibra parámetros
+        (X, eqty_max, thresholds) en la sesión inicial. Eso se traduce al IPS final.
+      </div>
     </div>
   );
 }
