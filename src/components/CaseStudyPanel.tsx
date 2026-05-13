@@ -16,7 +16,7 @@
  *
  * Worker arena.worker.ts ejecuta runBootstrap + buildArenaMarket + runArena.
  */
-import { useCallback, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   Area,
   CartesianGrid,
@@ -30,11 +30,13 @@ import {
   YAxis,
 } from 'recharts';
 import { computeMonthlyInflow } from '../domain/cashflow';
+import RangeSlider from './RangeSlider';
 import { useArenaWorker } from '../hooks/useArenaWorker';
 import {
   configToJobInput,
   DEFAULT_CASE_CONFIG,
   useCaseStudyStore,
+  type CaseStudyConfig,
 } from '../state/caseStudyStore';
 
 // =====================================================================
@@ -165,6 +167,16 @@ export default function CaseStudyPanel() {
   const [showAdvanced, setShowAdvanced] = useState(false);
   const worker = useArenaWorker();
 
+  // Ventana temporal del fan chart — empieza en "Total" tras cada simulación.
+  // Estado local (no en store) porque es transitorio: si el usuario cambia el
+  // horizonte y vuelve a correr, queremos reset automático a Total.
+  const [window, setWindow] = useState<{ startMonth: number; endMonth: number } | null>(null);
+  useEffect(() => {
+    if (result) {
+      setWindow({ startMonth: 0, endMonth: result.meta.horizonMonths });
+    }
+  }, [result]);
+
   // ---- Validación de allocation ----
   const allocSum = config.bulletTotalPct + config.equityPct + config.cashPct;
   const allocValid = Math.abs(allocSum - 1) < 1e-6;
@@ -231,13 +243,54 @@ export default function CaseStudyPanel() {
     return { initial, cumDeposit };
   }, [result, config.inflowBaseAnnual, config.inflowGrowth]);
 
-  // Ticks anuales para el X-axis (mes 0, 12, 24, ...)
+  // Ticks anuales del X-axis. Si la ventana es corta (<24m) usamos cada 3m.
   const xTicks = useMemo(() => {
-    if (!result) return [];
+    if (!result || !window) return [];
+    const len = window.endMonth - window.startMonth;
+    const step = len <= 24 ? 3 : len <= 72 ? 12 : 24;
     const ticks: number[] = [];
-    for (let t = 0; t <= result.meta.horizonMonths; t += 12) ticks.push(t);
-    if (ticks[ticks.length - 1] !== result.meta.horizonMonths) ticks.push(result.meta.horizonMonths);
+    // Anclar al múltiplo de step más cercano DENTRO de la ventana
+    const startTick = Math.ceil(window.startMonth / step) * step;
+    for (let t = startTick; t <= window.endMonth; t += step) ticks.push(t);
     return ticks;
+  }, [result, window]);
+
+  // Y-domain DINÁMICO calculado solo sobre data dentro del window.
+  // Matchea el patrón del FanChart original: el eje hace zoom a la ventana.
+  // Incluimos también las ReferenceLines (initial + cumDeposit) para que no
+  // queden fuera de pantalla cuando el window arranca después del año 0.
+  const wealthYDomain = useMemo<[number, number]>(() => {
+    if (!result || !window || wealthChartData.length === 0) return [0, 1];
+    let min = Infinity;
+    let max = -Infinity;
+    for (const p of wealthChartData) {
+      if (p.month < window.startMonth || p.month > window.endMonth) continue;
+      if (p.p5 < min) min = p.p5;
+      if (p.p95 > max) max = p.p95;
+    }
+    // Incluir las refs en el cómputo si están en el rango del window
+    if (wealthReferences) {
+      if (wealthReferences.initial < min) min = wealthReferences.initial;
+      if (wealthReferences.initial > max) max = wealthReferences.initial;
+      if (wealthReferences.cumDeposit < min) min = wealthReferences.cumDeposit;
+      if (wealthReferences.cumDeposit > max) max = wealthReferences.cumDeposit;
+    }
+    if (!Number.isFinite(min) || !Number.isFinite(max)) return [0, 1];
+    const range = max - min;
+    const pad = range > 0 ? range * 0.05 : Math.abs(max) * 0.05 || 0.1;
+    return [Math.max(0, min - pad), max + pad];
+  }, [result, window, wealthChartData, wealthReferences]);
+
+  // Chips de período rápido
+  const periodChips = useMemo(() => {
+    if (!result) return [];
+    return [
+      { label: '1y', months: 12 },
+      { label: '3y', months: 36 },
+      { label: '5y', months: 60 },
+      { label: '10y', months: 120 },
+      { label: 'Total', months: result.meta.horizonMonths },
+    ].filter((c) => c.months <= result.meta.horizonMonths);
   }, [result]);
 
   const sleeveChartData = useMemo(() => {
@@ -565,6 +618,9 @@ export default function CaseStudyPanel() {
             </div>
           </div>
 
+          {/* Detalle de sleeves (collapsible) */}
+          <SleevesDetailPanel config={config} />
+
           {/* Regime + loan breakdown */}
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div className="bg-white dark:bg-mercantil-dark-panel rounded-lg border border-mercantil-line dark:border-mercantil-dark-line p-5">
@@ -608,14 +664,20 @@ export default function CaseStudyPanel() {
                   <XAxis
                     dataKey="month"
                     type="number"
-                    domain={[0, result.meta.horizonMonths]}
+                    domain={window ? [window.startMonth, window.endMonth] : [0, result.meta.horizonMonths]}
+                    allowDataOverflow
                     ticks={xTicks}
-                    tickFormatter={(v: number) => `${(v / 12).toFixed(0)}y`}
+                    tickFormatter={(v: number) => {
+                      const y = v / 12;
+                      return Number.isInteger(y) ? `${y}y` : `${y.toFixed(1)}y`;
+                    }}
                     fontSize={11}
                   />
                   <YAxis
-                    width={60}
-                    tickFormatter={(v: number) => `$${v.toFixed(0)}M`}
+                    width={64}
+                    domain={wealthYDomain}
+                    allowDataOverflow
+                    tickFormatter={(v: number) => v < 1 ? `$${(v * 1000).toFixed(0)}k` : `$${v.toFixed(1)}M`}
                     fontSize={11}
                   />
                   <Tooltip
@@ -686,7 +748,47 @@ export default function CaseStudyPanel() {
                 </ComposedChart>
               </ResponsiveContainer>
             </div>
-            <div className="mt-3 grid grid-cols-1 md:grid-cols-2 gap-3 text-xs text-mercantil-slate dark:text-mercantil-dark-slate">
+
+            {/* Window slider + chips (match FanChart original del Comparador A/B) */}
+            {window && (
+              <div className="mt-4 space-y-2">
+                <div className="flex items-center justify-between gap-3 flex-wrap">
+                  <div className="text-xs text-mercantil-slate dark:text-mercantil-dark-slate">
+                    Ventana: <strong className="text-mercantil-ink dark:text-mercantil-dark-ink">mes {window.startMonth}–{window.endMonth}</strong>{' '}
+                    (año {(window.startMonth / 12).toFixed(1)}–{(window.endMonth / 12).toFixed(1)}, {window.endMonth - window.startMonth} meses)
+                  </div>
+                  <div className="flex items-center gap-1 flex-wrap">
+                    {periodChips.map((chip) => {
+                      const active = window.startMonth === 0 && window.endMonth === chip.months;
+                      return (
+                        <button
+                          key={chip.label}
+                          onClick={() => setWindow({ startMonth: 0, endMonth: chip.months })}
+                          className={`px-2.5 py-1 text-xs rounded border transition-colors ${
+                            active
+                              ? 'bg-mercantil-orange border-mercantil-orange text-white'
+                              : 'bg-white dark:bg-mercantil-dark-panel border-mercantil-line dark:border-mercantil-dark-line text-mercantil-slate dark:text-mercantil-dark-slate hover:border-mercantil-orange hover:text-mercantil-orange'
+                          }`}
+                        >
+                          {chip.label}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+                <RangeSlider
+                  min={0}
+                  max={result.meta.horizonMonths}
+                  start={window.startMonth}
+                  end={window.endMonth}
+                  minWindow={6}
+                  onChange={(s, e) => setWindow({ startMonth: s, endMonth: e })}
+                  formatValue={(v) => `m${v} (${(v / 12).toFixed(1)}y)`}
+                />
+              </div>
+            )}
+
+            <div className="mt-4 grid grid-cols-1 md:grid-cols-2 gap-3 text-xs text-mercantil-slate dark:text-mercantil-dark-slate">
               <div className="p-3 rounded border border-mercantil-line dark:border-mercantil-dark-line">
                 <strong className="text-mercantil-ink dark:text-mercantil-dark-ink">Lado izquierdo · corto plazo:</strong>{' '}
                 las bandas son angostas. El riesgo dominante es <strong>volatilidad mark-to-market</strong> — drawdowns
@@ -713,14 +815,18 @@ export default function CaseStudyPanel() {
                   <XAxis
                     dataKey="month"
                     type="number"
-                    domain={[0, result.meta.horizonMonths]}
+                    domain={window ? [window.startMonth, window.endMonth] : [0, result.meta.horizonMonths]}
+                    allowDataOverflow
                     ticks={xTicks}
-                    tickFormatter={(v: number) => `${(v / 12).toFixed(0)}y`}
+                    tickFormatter={(v: number) => {
+                      const y = v / 12;
+                      return Number.isInteger(y) ? `${y}y` : `${y.toFixed(1)}y`;
+                    }}
                     fontSize={11}
                   />
                   <YAxis
-                    width={60}
-                    tickFormatter={(v: number) => `$${v.toFixed(0)}M`}
+                    width={64}
+                    tickFormatter={(v: number) => v < 1 ? `$${(v * 1000).toFixed(0)}k` : `$${v.toFixed(1)}M`}
                     fontSize={11}
                   />
                   <Tooltip
@@ -797,3 +903,284 @@ function LoanRow({ label, value }: { label: string; value: string }) {
 
 // Suprime warning de import sin usar (DEFAULT_CASE_CONFIG es útil para tests/exports futuros)
 export const _DEFAULT_REF = DEFAULT_CASE_CONFIG;
+
+// =====================================================================
+// SLEEVES DETAIL — explicación didáctica de los 3 sleeves del case study
+// =====================================================================
+
+function SleevesDetailPanel({ config }: { config: CaseStudyConfig }) {
+  const bulletAumPct = (config.bulletTotalPct * 100).toFixed(0);
+  const equityAumPct = (config.equityPct * 100).toFixed(0);
+  const cashAumPct = (config.cashPct * 100).toFixed(0);
+  const eqtyMin = (config.eqtyMin * 100).toFixed(0);
+  const eqtyMax = (config.eqtyMax * 100).toFixed(0);
+  const spreadBp = (config.initialSpread * 10000).toFixed(0);
+
+  return (
+    <div className="bg-white dark:bg-mercantil-dark-panel rounded-lg border border-mercantil-line dark:border-mercantil-dark-line p-5">
+      <h3 className="text-sm uppercase tracking-wider text-mercantil-slate dark:text-mercantil-dark-slate font-medium mb-1">
+        Detalle de los sleeves
+      </h3>
+      <p className="text-xs text-mercantil-slate dark:text-mercantil-dark-slate mb-3">
+        Un <em>sleeve</em> es un subconjunto del portafolio con su propio mandato, regla operativa y benchmark.
+        El caso de estudio usa 3 sleeves: <strong>Bullets</strong> (ladder de bonos), <strong>Equity</strong>{' '}
+        (sleeve de acciones) y <strong>Cash</strong> (buffer de liquidez). Cada uno se opera con reglas distintas
+        — los eventos del modelo (vencimientos, ventas forzadas por préstamo, rebalanceo) actúan a nivel sleeve,
+        no a nivel ticker individual.
+      </p>
+
+      <div className="space-y-2">
+        {/* SLEEVE BULLETS */}
+        <details className="rounded border border-mercantil-line dark:border-mercantil-dark-line">
+          <summary className="px-4 py-3 cursor-pointer flex items-center justify-between bg-mercantil-bg-soft/30">
+            <span className="flex items-center gap-2">
+              <span className="inline-block w-3 h-3 rounded-sm" style={{ background: '#003566' }} />
+              <strong className="text-mercantil-ink dark:text-mercantil-dark-ink">Sleeve Bullets</strong>
+              <span className="text-xs text-mercantil-slate dark:text-mercantil-dark-slate">
+                {bulletAumPct}% del AUM · ladder iBonds corporativo IG
+              </span>
+            </span>
+            <span className="text-xs text-mercantil-orange">click para detalle ▾</span>
+          </summary>
+          <div className="px-4 pb-4 pt-2 text-sm space-y-3">
+            <p>
+              Escalera de 11 bullets investment-grade corporativos USD: 9 vintages reales 2026–2034
+              (BlackRock iBonds UCITS USD Corp Term ETFs) + 2 sintéticos 2035S/2036S. Inicialización equal-weight
+              (1/11 ≈ 9.1% del sleeve por bullet). Es el <strong>motor de carry estable</strong> del portafolio.
+            </p>
+
+            <div>
+              <div className="font-semibold text-mercantil-ink dark:text-mercantil-dark-ink text-xs uppercase tracking-wider mb-1">
+                Diversificación interna por plazo
+              </div>
+              <ul className="text-xs space-y-0.5">
+                <li>• <strong>Corto</strong> (&lt;3y) — 3 bullets ID26/27/28 → 27.3% del ladder, {(0.273 * config.bulletTotalPct * 100).toFixed(1)}% del AUM</li>
+                <li>• <strong>Medio</strong> (3–6y) — 3 bullets ID29/30/31 → 27.3% del ladder, {(0.273 * config.bulletTotalPct * 100).toFixed(1)}% del AUM</li>
+                <li>• <strong>Largo</strong> (6–9y) — 3 bullets ID32/33/34 → 27.3% del ladder, {(0.273 * config.bulletTotalPct * 100).toFixed(1)}% del AUM</li>
+                <li>• <strong>Extra-largo</strong> (9–11y) — 2 sintéticos ID35S/36S → 18.2% del ladder, {(0.182 * config.bulletTotalPct * 100).toFixed(1)}% del AUM</li>
+              </ul>
+            </div>
+
+            <div>
+              <div className="font-semibold text-mercantil-ink dark:text-mercantil-dark-ink text-xs uppercase tracking-wider mb-1">
+                Diversificación interna de crédito
+              </div>
+              <ul className="text-xs space-y-0.5">
+                <li>• <strong>Calidad crediticia</strong>: investment grade (rating BBB– o superior; promedio del índice ~A3/A-). Sin high yield, sin emerging corporate.</li>
+                <li>• <strong>Multi-emisor</strong>: cada iBond UCITS replica un índice Bloomberg corporativo con ~200–400 emisores (financieros, industriales, healthcare, comunicaciones, utilities, consumo). No hay exposure significativa a un emisor único — el peso máximo por emisor es típicamente &lt;3%.</li>
+                <li>• <strong>Riesgo de default</strong>: tasa histórica IG anual ~0.10–0.30% (depende del rating). En el peor año (2008–2009) los IG tocaron ~0.40%. Sobre 11 bullets × ~300 emisores ≈ 3.300 bonos individuales, el efecto de un default específico es muy pequeño (típicamente recovery ~40% → loss-given-default por default ~0.18% del bono afectado).</li>
+                <li>• <strong>Spread modelado</strong>: {spreadBp} bp sobre la curva Treasury (configurable en panel Avanzado). Media histórica IG corp: ~110 bp; rango típico 70–250 bp; picos crisis: 400–600 bp.</li>
+              </ul>
+            </div>
+
+            <div>
+              <div className="font-semibold text-mercantil-ink dark:text-mercantil-dark-ink text-xs uppercase tracking-wider mb-1">
+                Geografía
+              </div>
+              <p className="text-xs">
+                100% deuda USD. Emisores diversificados globalmente: USA (~55%), Europa desarrollada (~25%),
+                Reino Unido (~8%), Canadá (~5%), Japón / resto Asia desarrollada (~7%). Todos con deuda emitida
+                en USD (no hay riesgo cambiario operativo). No hay emerging market corporate.
+              </p>
+            </div>
+
+            <div>
+              <div className="font-semibold text-mercantil-ink dark:text-mercantil-dark-ink text-xs uppercase tracking-wider mb-1">
+                Duración y convexidad
+              </div>
+              <ul className="text-xs space-y-0.5">
+                <li>• Duración inicial por bullet ≈ 0.93 × maturity (regla IG corp). Rango: 0.6y (ID26 corto) a 9.9y (ID36S extra-largo).</li>
+                <li>• <strong>Duración promedio del ladder</strong>: ~5.0–5.5y al inicio. Decrece monótonamente con el tiempo (cada bullet va perdiendo duration mensual).</li>
+                <li>• <strong>Convexidad</strong>: aprox. duration² + duration (aprox cuadrática del coupon-paying bond). Convexidad positiva = el bullet gana más en una caída de tasas que lo que pierde en una subida equivalente. Importa más en bullets largos.</li>
+                <li>• <strong>Roll-down</strong>: cuando la curva está positiva (TNX &gt; FVX &gt; IRX), cada bullet baja por la curva al envejecer → captura yield decreciente → ganancia "roll" adicional al carry. Es el motor de alpha del ladder en mercados normales.</li>
+              </ul>
+            </div>
+
+            <div>
+              <div className="font-semibold text-mercantil-ink dark:text-mercantil-dark-ink text-xs uppercase tracking-wider mb-1">
+                Regla operativa al vencimiento
+              </div>
+              <p className="text-xs">
+                Cada bullet vence en su fecha exacta y libera principal. Si <strong>rollover táctico</strong> está habilitado,
+                ese principal se redistribuye según el régimen de tasas vigente (A/B/C) — destino primario: el siguiente bullet
+                sintético (extensión natural de la escalera, default 25 extensiones a +1 año cada una). Si rollover está
+                deshabilitado, el principal queda en cash (buy &amp; hold).
+              </p>
+            </div>
+
+            <div>
+              <div className="font-semibold text-mercantil-ink dark:text-mercantil-dark-ink text-xs uppercase tracking-wider mb-1">
+                Liquidez operativa
+              </div>
+              <p className="text-xs">
+                Los iBonds UCITS son ETFs listados con liquidez intradía. Bid/ask típico: 5–15 bp en condiciones
+                normales, hasta 50 bp en estrés. El modelo NO penaliza por transaction cost — asume liquidación
+                clean al NAV.
+              </p>
+            </div>
+          </div>
+        </details>
+
+        {/* SLEEVE EQUITY */}
+        <details className="rounded border border-mercantil-line dark:border-mercantil-dark-line">
+          <summary className="px-4 py-3 cursor-pointer flex items-center justify-between bg-mercantil-bg-soft/30">
+            <span className="flex items-center gap-2">
+              <span className="inline-block w-3 h-3 rounded-sm" style={{ background: '#F58220' }} />
+              <strong className="text-mercantil-ink dark:text-mercantil-dark-ink">Sleeve Equity</strong>
+              <span className="text-xs text-mercantil-slate dark:text-mercantil-dark-slate">
+                {equityAumPct}% del AUM · 50% USMV + 50% SCHD · banda [{eqtyMin}%, {eqtyMax}%]
+              </span>
+            </span>
+            <span className="text-xs text-mercantil-orange">click para detalle ▾</span>
+          </summary>
+          <div className="px-4 pb-4 pt-2 text-sm space-y-3">
+            <p>
+              Sleeve <strong>defensivo de calidad</strong>: NO es un sleeve de crecimiento. La decisión fue priorizar
+              downside protection sobre upside máximo, dado el horizonte y el riesgo reputacional para la junta de
+              un drawdown grande en reporting trimestral.
+            </p>
+
+            <div>
+              <div className="font-semibold text-mercantil-ink dark:text-mercantil-dark-ink text-xs uppercase tracking-wider mb-1">
+                Composición: 2 ETFs
+              </div>
+              <ul className="text-xs space-y-1.5">
+                <li>
+                  <strong>USMV (50% del sleeve)</strong> — iShares MSCI USA Min Vol Factor ETF.
+                  ~190 holdings seleccionados por optimización de volatilidad mínima sobre el universo MSCI USA.
+                  Expense ratio 0.15%. AUM &gt; $30B. Bias hacia healthcare, consumer staples, comunicaciones.
+                  Volatilidad histórica ~12% anual (vs ~15% del S&amp;P 500).
+                </li>
+                <li>
+                  <strong>SCHD (50% del sleeve)</strong> — Schwab US Dividend Equity ETF.
+                  ~100 holdings con ≥10 años de dividendos consecutivos, screen de calidad fundamental
+                  (cash flow / debt, ROE, dividend growth). Expense ratio 0.06%. AUM &gt; $60B. Bias hacia
+                  financieros, industriales, healthcare, energy. Yield ~3.5%.
+                </li>
+              </ul>
+              <p className="text-xs mt-2 italic text-mercantil-slate dark:text-mercantil-dark-slate">
+                Overlap USMV ∩ SCHD: ~25–30 holdings comunes (large cap defensivo + dividendo alto suelen coincidir).
+                Eso amplifica el bias defensivo combinado.
+              </p>
+            </div>
+
+            <div>
+              <div className="font-semibold text-mercantil-ink dark:text-mercantil-dark-ink text-xs uppercase tracking-wider mb-1">
+                Diversificación interna (mix 50/50 combinado)
+              </div>
+              <ul className="text-xs space-y-0.5">
+                <li>• <strong>Holdings únicos</strong>: ~260 acciones distintas (USMV ~190 + SCHD ~100 − overlap ~30).</li>
+                <li>• <strong>Peso máximo por acción</strong>: típicamente &lt;2% en USMV, &lt;5% en SCHD. Combinado: &lt;3% por nombre.</li>
+                <li>• <strong>Sectores top</strong> (aproximado, varía trimestralmente): Healthcare 16%, Financieros 13%, Industriales 13%, Consumo Básico 12%, Tecnología 12%, Consumo Discrecional 9%, Comunicaciones 9%, Energía 6%, Utilities 5%, Materiales 4%, Real Estate 1%. <strong>Ningún sector excede 18%</strong>.</li>
+                <li>• <strong>Capitalización</strong>: 100% large &amp; mid cap (no small caps). USMV permite mid; SCHD es predominantemente large cap.</li>
+              </ul>
+            </div>
+
+            <div>
+              <div className="font-semibold text-mercantil-ink dark:text-mercantil-dark-ink text-xs uppercase tracking-wider mb-1">
+                Geografía
+              </div>
+              <p className="text-xs">
+                <strong>100% Estados Unidos</strong> por construcción de ambos ETFs. Sin internacional desarrollado,
+                sin emergentes. Es un sesgo deliberado: el universo USA tiene la mejor diversificación
+                sectorial doméstica y la liquidez más profunda para los flujos del endowment. Si en una revisión
+                futura la junta valora diversificación geográfica, se puede sustituir 30–50% del sleeve por ACWX
+                (ex-US developed) o ACWI (global) sin tocar el resto del modelo.
+              </p>
+            </div>
+
+            <div>
+              <div className="font-semibold text-mercantil-ink dark:text-mercantil-dark-ink text-xs uppercase tracking-wider mb-1">
+                Riesgo y comportamiento histórico
+              </div>
+              <ul className="text-xs space-y-0.5">
+                <li>• <strong>Volatilidad anualizada</strong>: ~12% (vs 15% S&amp;P, 18% NASDAQ). Captura ~80–85% del upside del mercado en bull market y solo ~60% del downside en bear (asymmetry deseable).</li>
+                <li>• <strong>Drawdown histórico peor</strong>: USMV en 2020 COVID: −22% (vs −34% S&amp;P). SCHD en 2022 bear: −16% (vs −19% S&amp;P).</li>
+                <li>• <strong>Correlación con bullets IG</strong>: 0.2–0.4 (positiva pero baja). En crisis de 2008–2009 sube a 0.6 temporalmente.</li>
+              </ul>
+            </div>
+
+            <div>
+              <div className="font-semibold text-mercantil-ink dark:text-mercantil-dark-ink text-xs uppercase tracking-wider mb-1">
+                Banda dura y rol en rollover táctico
+              </div>
+              <p className="text-xs">
+                Banda dura configurada en <strong>[{eqtyMin}%, {eqtyMax}%]</strong> del AUM total.
+                Si el AUM equity excede {eqtyMax}%, el rollover táctico recorta en eventos A. Si cae por debajo de
+                {' '}{eqtyMin}%, no se vende — solo se compra cuando hay régimen B (tasas bajas / curva flat) y se
+                aprovecha el principal vencido para reforzar la posición barata.
+              </p>
+            </div>
+          </div>
+        </details>
+
+        {/* SLEEVE CASH */}
+        <details className="rounded border border-mercantil-line dark:border-mercantil-dark-line">
+          <summary className="px-4 py-3 cursor-pointer flex items-center justify-between bg-mercantil-bg-soft/30">
+            <span className="flex items-center gap-2">
+              <span className="inline-block w-3 h-3 rounded-sm" style={{ background: '#888' }} />
+              <strong className="text-mercantil-ink dark:text-mercantil-dark-ink">Sleeve Cash</strong>
+              <span className="text-xs text-mercantil-slate dark:text-mercantil-dark-slate">
+                {cashAumPct}% del AUM · BIL (T-Bills 1–3m) · target {(config.cashBandUpper * 100).toFixed(0)}%
+              </span>
+            </span>
+            <span className="text-xs text-mercantil-orange">click para detalle ▾</span>
+          </summary>
+          <div className="px-4 pb-4 pt-2 text-sm space-y-3">
+            <p>
+              <strong>Buffer de liquidez operativa</strong>. No es un sleeve de retorno — su rol es absorber
+              flujos (inflows del endowment, cuotas del préstamo si está activado, exceso de rebalanceo) y
+              servir de primera línea en la cascada de ventas forzadas.
+            </p>
+
+            <div>
+              <div className="font-semibold text-mercantil-ink dark:text-mercantil-dark-ink text-xs uppercase tracking-wider mb-1">
+                Composición
+              </div>
+              <p className="text-xs">
+                <strong>100% BIL</strong> — SPDR Bloomberg 1-3 Month T-Bill ETF. Subyacente: T-Bills del Tesoro
+                de USA con vencimiento entre 1 y 3 meses. Expense ratio 0.135%. AUM &gt; $40B. Liquidez intradía
+                con bid/ask &lt;1 bp en condiciones normales.
+              </p>
+            </div>
+
+            <div>
+              <div className="font-semibold text-mercantil-ink dark:text-mercantil-dark-ink text-xs uppercase tracking-wider mb-1">
+                Riesgo de crédito
+              </div>
+              <p className="text-xs">
+                <strong>Cero riesgo de crédito corporativo</strong>. Riesgo soberano US (AA+ S&amp;P, Aaa Moody's).
+                Los T-Bills son obligaciones directas del Tesoro de USA — el activo libre-de-riesgo
+                por excelencia. En el universo de productos financieros líquidos en USD, no hay nada con menor
+                riesgo crediticio.
+              </p>
+            </div>
+
+            <div>
+              <div className="font-semibold text-mercantil-ink dark:text-mercantil-dark-ink text-xs uppercase tracking-wider mb-1">
+                Duración y sensibilidad a tasas
+              </div>
+              <p className="text-xs">
+                <strong>Duración ~0.15 años (~2 meses)</strong>. Cambio de 100 bp en tasas cortas → cambio de
+                ~0.15% en el precio del sleeve. Esencialmente insensible a tasas — el carry sigue la tasa del
+                Fed Funds + ~5 bp.
+              </p>
+            </div>
+
+            <div>
+              <div className="font-semibold text-mercantil-ink dark:text-mercantil-dark-ink text-xs uppercase tracking-wider mb-1">
+                Rol operativo en el modelo
+              </div>
+              <ul className="text-xs space-y-0.5">
+                <li>• <strong>Primera línea en cascada de pago</strong>: cuando hay préstamo activo y se paga la cuota mensual, primero se vacía cash, después equity, después bullet corto.</li>
+                <li>• <strong>Absorción de inflows</strong>: los $250k/yr del endowment entran como cash y se acumulan hasta superar la banda ({(config.cashBandUpper * 100).toFixed(0)}% del AUM total).</li>
+                <li>• <strong>Trigger de rebalanceo</strong>: cuando cash share supera {(config.cashBandUpper * 100).toFixed(0)}%, el exceso se distribuye a bullets (proporcional al peso vivo de cada bullet) y a equity (según plan strategic 65/30/5). Esto mantiene la composición target sin operaciones discrecionales.</li>
+                <li>• <strong>Margen de seguridad</strong>: en el escenario de préstamo + caída de mercados, el cash sleeve evita ventas forzadas inmediatas de bullets cuando hay un mes adverso.</li>
+              </ul>
+            </div>
+          </div>
+        </details>
+      </div>
+    </div>
+  );
+}
