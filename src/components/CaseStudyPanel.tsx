@@ -16,7 +16,7 @@
  *
  * Worker arena.worker.ts ejecuta runBootstrap + buildArenaMarket + runArena.
  */
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Area,
   CartesianGrid,
@@ -114,7 +114,44 @@ type NumInputProps = {
   hint?: string;
 };
 
-function NumInput({ label, value, onChange, step, min, max, suffix, hint }: NumInputProps) {
+function formatDraft(v: number): string {
+  if (!Number.isFinite(v)) return '0';
+  if (Number.isInteger(v)) return String(v);
+  // Hasta 3 decimales para no mostrar ruido tipo "0.011000000001"
+  return String(Math.round(v * 1000) / 1000);
+}
+
+function NumInput({ label, value, onChange, min, max, suffix, hint }: NumInputProps) {
+  // Draft local del input. Permite estados intermedios (vacío, "5.", "-")
+  // sin perder lo que el usuario está escribiendo. El valor canónico vive en
+  // `value` (controlado por el padre). Solo se commitea (clamp + propagate)
+  // en blur o Enter; el onChange intermedio propaga si es un número válido.
+  const [draft, setDraft] = useState<string>(formatDraft(value));
+  const lastSyncedRef = useRef<number>(value);
+
+  useEffect(() => {
+    if (value !== lastSyncedRef.current) {
+      setDraft(formatDraft(value));
+      lastSyncedRef.current = value;
+    }
+  }, [value]);
+
+  const commit = (txt: string) => {
+    const parsed = parseFloat(txt);
+    if (!Number.isFinite(parsed)) {
+      setDraft(formatDraft(value));
+      return;
+    }
+    let clamped = parsed;
+    if (min !== undefined && clamped < min) clamped = min;
+    if (max !== undefined && clamped > max) clamped = max;
+    setDraft(formatDraft(clamped));
+    if (clamped !== value) {
+      lastSyncedRef.current = clamped;
+      onChange(clamped);
+    }
+  };
+
   return (
     <label className="flex flex-col text-xs">
       <span className="font-medium text-mercantil-slate dark:text-mercantil-dark-slate mb-1">
@@ -127,15 +164,31 @@ function NumInput({ label, value, onChange, step, min, max, suffix, hint }: NumI
       </span>
       <div className="flex items-center gap-1">
         <input
-          type="number"
-          value={Number.isFinite(value) ? value : 0}
-          step={step ?? 1}
-          min={min}
-          max={max}
+          type="text"
+          inputMode="decimal"
+          value={draft}
           onChange={(e) => {
-            const v = parseFloat(e.target.value);
-            if (Number.isFinite(v)) onChange(v);
+            const next = e.target.value;
+            setDraft(next);
+            // Propagación intermedia solo si parsea como número válido;
+            // strings tipo "", "5.", "-" se quedan en draft pero no avisan al padre.
+            const parsed = parseFloat(next);
+            if (Number.isFinite(parsed) && next.trim() !== '' && /^-?\d*\.?\d+$/.test(next.trim())) {
+              if (parsed !== value) {
+                lastSyncedRef.current = parsed;
+                onChange(parsed);
+              }
+            }
           }}
+          onBlur={(e) => commit(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') (e.currentTarget as HTMLInputElement).blur();
+            if (e.key === 'Escape') {
+              setDraft(formatDraft(value));
+              (e.currentTarget as HTMLInputElement).blur();
+            }
+          }}
+          onFocus={(e) => e.currentTarget.select()}
           className="flex-1 px-2 py-1 rounded border border-mercantil-line dark:border-mercantil-dark-line bg-white dark:bg-mercantil-dark-panel text-mercantil-ink dark:text-mercantil-dark-ink text-sm"
         />
         {suffix && (
@@ -378,7 +431,7 @@ export default function CaseStudyPanel() {
         {/* --- Allocation --- */}
         <fieldset className="space-y-2">
           <legend className="text-xs uppercase tracking-wider text-mercantil-slate dark:text-mercantil-dark-slate font-medium">
-            Allocation estratégico (deben sumar 100%)
+            Allocation estratégico (las 3 primeras deben sumar 100%)
           </legend>
           <div className="grid grid-cols-3 gap-3">
             <NumInput
@@ -414,6 +467,31 @@ export default function CaseStudyPanel() {
               Suma actual: {(allocSum * 100).toFixed(1)}% (debe ser 100%)
             </p>
           )}
+          {/* Bandas de equity: estratégicas (definen hasta dónde el rollover
+              táctico puede mover el equity arriba o abajo). Se ponen acá, no
+              en Avanzado, porque son parte de la decisión de perfil de cliente. */}
+          <div className="grid grid-cols-2 gap-3 pt-2 border-t border-mercantil-line dark:border-mercantil-dark-line">
+            <NumInput
+              label="Equity mínimo"
+              value={config.eqtyMin * 100}
+              onChange={(v) => setConfig({ eqtyMin: v / 100 })}
+              step={5}
+              min={0}
+              max={100}
+              suffix="%"
+              hint="banda dura del rollover"
+            />
+            <NumInput
+              label="Equity máximo"
+              value={config.eqtyMax * 100}
+              onChange={(v) => setConfig({ eqtyMax: v / 100 })}
+              step={5}
+              min={0}
+              max={100}
+              suffix="%"
+              hint="banda dura del rollover"
+            />
+          </div>
         </fieldset>
 
         {/* --- Flows --- */}
@@ -494,11 +572,11 @@ export default function CaseStudyPanel() {
             onClick={() => setShowAdvanced((v) => !v)}
             className="text-xs text-mercantil-slate dark:text-mercantil-dark-slate hover:text-mercantil-orange"
           >
-            {showAdvanced ? '▼' : '▶'} Avanzado (spread, banda equity, thresholds rollover)
+            {showAdvanced ? '▼' : '▶'} Avanzado (spread bullets, thresholds rollover A/B/C)
           </button>
           {showAdvanced && (
             <div className="mt-3 space-y-3 border-l-2 border-mercantil-line dark:border-mercantil-dark-line pl-4">
-              <div className="grid grid-cols-3 gap-3">
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
                 <NumInput
                   label="Spread bullets"
                   value={config.initialSpread * 10000}
@@ -508,24 +586,6 @@ export default function CaseStudyPanel() {
                   max={500}
                   suffix="bp"
                   hint="sobre treasury"
-                />
-                <NumInput
-                  label="Equity min"
-                  value={config.eqtyMin * 100}
-                  onChange={(v) => setConfig({ eqtyMin: v / 100 })}
-                  step={5}
-                  min={0}
-                  max={100}
-                  suffix="%"
-                />
-                <NumInput
-                  label="Equity max"
-                  value={config.eqtyMax * 100}
-                  onChange={(v) => setConfig({ eqtyMax: v / 100 })}
-                  step={5}
-                  min={0}
-                  max={100}
-                  suffix="%"
                 />
               </div>
               <div className="grid grid-cols-3 gap-3 md:grid-cols-5">
