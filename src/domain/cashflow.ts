@@ -26,12 +26,16 @@
 export type LoanEvent = {
   /** Mes 0-indexed en que se dispara el préstamo. */
   triggerMonth: number;
-  /** Fracción del AUM total al momento del disparo (0..0.30). */
+  /** Fracción del AUM total al momento del disparo (0..0.65). */
   amountPctAum: number;
-  /** Factor sobre la tasa de mercado (default 0.70). */
+  /** Multiplicador sobre la tasa base (default 1.0). */
   rateFactor: number;
-  /** Spread del banco sobre UST3Y, en bp (default 250 = 2.50%). */
+  /** Spread del banco sobre la tasa base, en bp (default 150 = 1.50%
+   *  — oferta Mercantil SOFR + 150bps, mercado estándar cobra SOFR + 220bps). */
   rateSpreadBp: number;
+  /** Tasa base: 'sofr' (default, usa IRX como proxy) o 'uy3y' (UST3Y interpolada,
+   *  comportamiento histórico antes de rev 2026). */
+  rateBase: 'sofr' | 'uy3y';
   /** Plazo en meses (default 36). */
   termMonths: number;
   /** Solo 'amortizing' por ahora. */
@@ -41,26 +45,41 @@ export type LoanEvent = {
 /**
  * Construye un LoanEvent con defaults razonables. Valida que los parámetros
  * estén en rango.
+ *
+ * Defaults Mercantil SFI (revisión 2026):
+ *   - rateBase='sofr'  → IRX como proxy de SOFR
+ *   - rateSpreadBp=150 → oferta Mercantil (mercado estándar es 220bps)
+ *   - rateFactor=1.0   → sin discount adicional (el discount está absorbido
+ *                        en el spread reducido)
+ *   - amountPctAum hasta 0.65 del AUM al desembolso (antes 0.30).
  */
 export function makeLoanEvent(partial: {
   triggerMonth: number;
   amountPctAum: number;
   rateFactor?: number;
   rateSpreadBp?: number;
+  rateBase?: 'sofr' | 'uy3y';
   termMonths?: number;
   repaymentMode?: 'amortizing';
 }): LoanEvent {
   const ev: LoanEvent = {
     triggerMonth: partial.triggerMonth,
     amountPctAum: partial.amountPctAum,
-    rateFactor: partial.rateFactor ?? 0.70,
-    rateSpreadBp: partial.rateSpreadBp ?? 250.0,
+    rateFactor: partial.rateFactor ?? 1.0,
+    rateSpreadBp: partial.rateSpreadBp ?? 150.0,
+    rateBase: partial.rateBase ?? 'sofr',
     termMonths: partial.termMonths ?? 36,
     repaymentMode: partial.repaymentMode ?? 'amortizing',
   };
-  if (ev.amountPctAum < 0 || ev.amountPctAum > 0.30) {
+  if (ev.amountPctAum < 0 || ev.amountPctAum > 0.65) {
     throw new Error(
-      `makeLoanEvent: amountPctAum=${ev.amountPctAum} fuera de [0, 0.30]`,
+      `makeLoanEvent: amountPctAum=${ev.amountPctAum} fuera de [0, 0.65] ` +
+      `(spec rev 2026: max 65% del AUM al desembolso)`,
+    );
+  }
+  if (ev.rateBase !== 'sofr' && ev.rateBase !== 'uy3y') {
+    throw new Error(
+      `makeLoanEvent: rateBase='${ev.rateBase}' inválido (debe ser 'sofr' o 'uy3y')`,
     );
   }
   if (ev.repaymentMode !== 'amortizing') {
@@ -234,18 +253,26 @@ export function netWealth(state: CashFlowState, out?: Float64Array): Float64Arra
 // =====================================================================
 
 /**
- * Tasa anual decimal del préstamo: factor × (UST3Y + spread_bp/10000).
- * Soporta scalar o array (n_sims) en `uy3y`.
+ * Tasa anual decimal del préstamo: factor × (base_rate + spread_bp/10000).
+ *
+ * Defaults Mercantil 2026: SOFR + 150bps directo (factor=1.0).
+ * Para el modo histórico usar factor=0.70, spreadBp=250.
+ *
+ * @param baseRate tasa base anual decimal (SOFR proxy IRX, o UST3Y); scalar
+ *                 o array (n_sims)
+ * @param spreadBp spread en bp (default 150 = 1.50%, oferta Mercantil — el
+ *                 mercado estándar cobra 220bps)
+ * @param factor   multiplicador (default 1.0)
  */
 export function computeLoanRate(
-  uy3y: number | ArrayLike<number>,
-  spreadBp = 250.0,
-  factor = 0.70,
+  baseRate: number | ArrayLike<number>,
+  spreadBp = 150.0,
+  factor = 1.0,
 ): number | Float64Array {
   const sBp = spreadBp / 10000.0;
-  if (typeof uy3y === 'number') return factor * (uy3y + sBp);
-  const out = new Float64Array(uy3y.length);
-  for (let i = 0; i < uy3y.length; i++) out[i] = factor * (uy3y[i] + sBp);
+  if (typeof baseRate === 'number') return factor * (baseRate + sBp);
+  const out = new Float64Array(baseRate.length);
+  for (let i = 0; i < baseRate.length; i++) out[i] = factor * (baseRate[i] + sBp);
   return out;
 }
 
@@ -381,8 +408,18 @@ export function cashflowStep(input: CashFlowStepInput): CashFlowStepLog {
       }
     }
     if (!anyActive) {
-      const uy3y = interpolateUy3Y(market.yStateT, nSims);
-      const rateAnnual = computeLoanRate(uy3y, loanEvent.rateSpreadBp, loanEvent.rateFactor) as Float64Array;
+      // Tasa base según loanEvent.rateBase:
+      //   "sofr" (default 2026): IRX como proxy de SOFR (matchea oferta
+      //                          Mercantil SOFR + 150bps).
+      //   "uy3y": UST3Y interpolada (comportamiento histórico antes rev 2026).
+      let baseRate: Float64Array;
+      if (loanEvent.rateBase === 'sofr') {
+        baseRate = new Float64Array(nSims);
+        for (let s = 0; s < nSims; s++) baseRate[s] = market.yStateT[s * 4 + 0]; // IRX
+      } else {
+        baseRate = interpolateUy3Y(market.yStateT, nSims);
+      }
+      const rateAnnual = computeLoanRate(baseRate, loanEvent.rateSpreadBp, loanEvent.rateFactor) as Float64Array;
       const totals = totalAum(state);
       const amounts = new Float64Array(nSims);
       const rateMonthly = new Float64Array(nSims);

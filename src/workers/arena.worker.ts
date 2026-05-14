@@ -84,6 +84,7 @@ export type ArenaJobInput = {
         amountPctAum: number;
         rateFactor?: number;
         rateSpreadBp?: number;
+        rateBase?: 'sofr' | 'uy3y';
         termMonths?: number;
       };
 
@@ -288,6 +289,7 @@ function executeJob(id: string, payload: ArenaJobInput): {
         amountPctAum: payload.loanEvent.amountPctAum,
         rateFactor: payload.loanEvent.rateFactor,
         rateSpreadBp: payload.loanEvent.rateSpreadBp,
+        rateBase: payload.loanEvent.rateBase,
         termMonths: payload.loanEvent.termMonths,
       })
     : null;

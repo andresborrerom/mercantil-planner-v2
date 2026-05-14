@@ -867,8 +867,9 @@ export default function CaseStudyPanel() {
                 onChange={(v) => setConfig({ loanAmountPctAum: v / 100 })}
                 step={1}
                 min={0}
-                max={30}
+                max={65}
                 suffix="%"
+                hint="hasta 65% (oferta Mercantil)"
               />
               <NumInput
                 label="Plazo"

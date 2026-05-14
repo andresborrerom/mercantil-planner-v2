@@ -36,6 +36,7 @@ type FixtureScenario = {
     amount_pct_aum: number;
     rate_factor?: number;
     rate_spread_bp?: number;
+    rate_base?: 'sofr' | 'uy3y';
     term_months?: number;
   } | null;
   inflow_base_annual: number;
@@ -99,6 +100,7 @@ function runScenarioTs(scen: FixtureScenario): CashFlowState {
       amountPctAum: scen.loan_event.amount_pct_aum,
       rateFactor: scen.loan_event.rate_factor,
       rateSpreadBp: scen.loan_event.rate_spread_bp,
+      rateBase: scen.loan_event.rate_base,
       termMonths: scen.loan_event.term_months,
     });
   }

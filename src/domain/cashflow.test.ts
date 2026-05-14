@@ -116,17 +116,25 @@ describe('interpolateUy3Y', () => {
 // LoanEvent validaciones
 // =====================================================================
 
+describe('computeLoanRate · defaults rev 2026 (SOFR+150bps)', () => {
+  it('defaults nuevos: factor=1.0, spread=150bps → base + 1.5%', () => {
+    expect(computeLoanRate(0.053)).toBeCloseTo(0.053 + 0.015, 10);  // 6.80%
+    expect(computeLoanRate(0.04)).toBeCloseTo(0.055, 10);  // 5.50%
+  });
+});
+
 describe('makeLoanEvent', () => {
   it('aplica defaults razonables', () => {
     const ev = makeLoanEvent({ triggerMonth: 0, amountPctAum: 0.25 });
-    expect(ev.rateFactor).toBe(0.7);
-    expect(ev.rateSpreadBp).toBe(250);
+    expect(ev.rateFactor).toBe(1.0);
+    expect(ev.rateSpreadBp).toBe(150);
+    expect(ev.rateBase).toBe('sofr');
     expect(ev.termMonths).toBe(36);
     expect(ev.repaymentMode).toBe('amortizing');
   });
 
-  it('rechaza amountPctAum fuera de [0, 0.30]', () => {
-    expect(() => makeLoanEvent({ triggerMonth: 0, amountPctAum: 0.35 })).toThrow(/0.30/);
+  it('rechaza amountPctAum fuera de [0, 0.65]', () => {
+    expect(() => makeLoanEvent({ triggerMonth: 0, amountPctAum: 0.70 })).toThrow(/0.65/);
     expect(() => makeLoanEvent({ triggerMonth: 0, amountPctAum: -0.05 })).toThrow();
   });
 
@@ -146,7 +154,7 @@ describe('makeLoanEvent', () => {
 // =====================================================================
 
 describe('cashflowStep T1 — amortización pura', () => {
-  it('amortiza completamente $300k @ 4.55% en 36 meses sin shortfall', () => {
+  it('amortiza completamente $300k @ 5.50% en 36 meses sin shortfall', () => {
     const nSims = 5;
     const state = initializeState({
       nSims,
@@ -159,7 +167,9 @@ describe('cashflowStep T1 — amortización pura', () => {
 
     const market: CashFlowMarket = { yStateT: flatCurveYstate(nSims, 0.04) };
 
-    const expectedRate = 0.7 * (0.04 + 0.025); // 4.55%
+    // Defaults rev 2026: factor=1.0, spread=150bp, rate_base="sofr" (IRX).
+    // Curva flat 4% → IRX=4% → rate = 1.0 × (0.04 + 0.015) = 5.50%
+    const expectedRate = 0.055;
     const expectedAmount = 0.30 * 1_000_000;   // $300k
     const rM = expectedRate / 12;
     const expectedPmt = (expectedAmount * rM) / (1 - Math.pow(1 + rM, -36));
@@ -447,7 +457,9 @@ describe('cashflowStep — trigger LoanEvent', () => {
     expect(state.loanActive[0]).toBe(1);
     expect(state.loanMonthsRemaining[0]).toBe(36 - 1);
 
-    const r = (0.7 * 0.065) / 12; // 4.55% / 12
+    // Defaults rev 2026: factor=1.0, spread=150bp, rate_base="sofr" (IRX).
+    // Curva flat 4% → IRX=4% → rate = 1.0 × (0.04 + 0.015) = 5.50%
+    const r = 0.055 / 12;
     const expectedPmt = (200_000 * r) / (1 - Math.pow(1 + r, -36));
     const firstInterest = 200_000 * r;
     const firstPrincipal = expectedPmt - firstInterest;
