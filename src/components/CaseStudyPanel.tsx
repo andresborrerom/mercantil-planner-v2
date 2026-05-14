@@ -101,6 +101,25 @@ function fmtPct(decimal: number, digits = 2): string {
   return `${(decimal * 100).toFixed(digits)}%`;
 }
 
+// Props compartidos para los Tooltips de recharts: anclado arriba-izquierda
+// del área del chart, fuente compacta. La pin posición evita que tape la
+// data cuando el usuario mueve el cursor.
+const TOOLTIP_PROPS = {
+  position: { x: 12, y: 8 },
+  wrapperStyle: { fontSize: '9.5px', pointerEvents: 'none' as const, zIndex: 50 },
+  contentStyle: {
+    padding: '5px 8px',
+    fontSize: '9.5px',
+    lineHeight: 1.3,
+    borderRadius: 4,
+    background: 'rgba(255, 255, 255, 0.96)',
+    border: '1px solid #e5e7ef',
+    boxShadow: '0 2px 8px rgba(0,0,0,0.08)',
+  },
+  itemStyle: { padding: '1px 0', fontSize: '9.5px' },
+  labelStyle: { fontWeight: 600, marginBottom: 2, fontSize: '10px' },
+};
+
 // =====================================================================
 // INPUT COMPONENTS
 // =====================================================================
@@ -1181,6 +1200,7 @@ export default function CaseStudyPanel() {
                     fontSize={11}
                   />
                   <Tooltip
+                    {...TOOLTIP_PROPS}
                     formatter={(v, name) => {
                       if (Array.isArray(v)) {
                         const [lo, hi] = v as [number, number];
@@ -1406,6 +1426,7 @@ export default function CaseStudyPanel() {
                       fontSize={11}
                     />
                     <Tooltip
+                      {...TOOLTIP_PROPS}
                       formatter={(v, name) => {
                         const n = typeof v === 'number' ? v : 0;
                         return [`$${n.toFixed(2)}M`, name];
@@ -1510,6 +1531,7 @@ export default function CaseStudyPanel() {
                     fontSize={11}
                   />
                   <Tooltip
+                    {...TOOLTIP_PROPS}
                     formatter={(v, name) => {
                       const n = typeof v === 'number' ? v : 0;
                       return [`$${n.toFixed(2)}M`, name];
