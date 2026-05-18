@@ -1,100 +1,116 @@
-# Prompt para nueva sesión de Claude Code — Mercantil Planner
+# Prompt para nueva sesión de Claude Code — Mercantil Planner v2
 
 Copia y pega todo el bloque de abajo al iniciar la sesión.
 
 ---
 
-Estoy trabajando en el subproyecto Mercantil Planner. Lee estos 4 archivos en este orden antes de hacer cualquier otra cosa:
+Estoy trabajando en el subproyecto **Mercantil Planner v2**. Lee estos archivos en este orden antes de hacer cualquier otra cosa:
 
-1. `INSTRUCCIONES-PLANNER.md` completo (es la fuente de verdad del subproyecto — spec original).
-2. `progreso-planner.md` — la bitácora acumulativa. Es append-only; la entrada **más reciente está al final** y corresponde al **2026-05-07** (8 GIFs animados + drag-and-drop PDF + sección C del PDF, todo desplegado a `main`).
-3. `research/decisiones-tecnicas-pdf.md` — decisiones técnicas del PDF ya con OK explícito de Pocho.
-4. `presentacion-2026-05-08.md` — guion de la presentación que di el 2026-05-08 (te puede dar contexto de qué se demostró y qué retroalimentación tuve).
-5. `../about-me.md` (mi perfil profesional, compartido entre proyectos).
+1. `CLAUDE.md` — **fuente de verdad operativa del v2**. Patrones canónicos (worker→hook→store→component, FanChart pattern, draft local en inputs numéricos, sleeves como concepto operativo, paridad Python como contrato, `tsc -b` como source-of-truth). Advances que NO perder. Checklist para extender con un case study nuevo.
+2. `INSTRUCCIONES-PLANNER.md` — spec original heredada de v1 (objetivo, stack, motores, UI, AMCs, criterio de aceptación). Si contradice CLAUDE.md, manda CLAUDE.md (es más reciente y refleja la realidad del v2).
+3. `progreso-planner.md` — bitácora acumulativa append-only. La entrada **más reciente está al final** y corresponde al **2026-05-18** (housekeeping de documentación post-cierre TBSC).
+4. `presentacion-2026-05-08.md` — guion de la presentación dada el 2026-05-08 (contexto de qué se demostró y qué retroalimentación llegó).
+5. `research/decisiones-tecnicas-pdf.md` — decisiones técnicas del PDF (con OK explícito).
+6. `../about-me.md` (perfil profesional de Andrés, compartido entre proyectos).
 
 **NO leas** ningún otro `.md` de la carpeta raíz `../` — pertenecen a otro proyecto (Estudio de Benchmark Mercantil).
 
-Antes de tocar código, hacé el checklist del §14 del spec:
+## Checklist antes de tocar código
 
-- Verificá que estás en branch `feature/pdf-cierre` (NO en `main`). Mi trabajo activo del PDF está ahí.
-- Verificá que los 3 CSVs de `data/` existen.
-- Corré `npm test` y confirmá que los **337 tests** pasan (motor del planner + state container PDF + serializador + tail risk CVaR + drag-and-drop rehidratación).
+- Verificá la branch actual. Por defecto trabajamos sobre `main`; si la tarea es exploratoria/refactor, abrí branch dedicada.
+- Verificá que los 3 CSVs de `../mercantil_datos/` existen (`mercantil_retornos_backfilled.csv`, `mercantil_rf_decomposed.csv`, `mercantil_yields_mensuales.csv`).
+- Corré `npx vitest run` y confirmá **570 tests verdes** (motores Comparador A/B + engines Caso de Estudio con paridad Python: bullets, bootstrap ladder, rollover, cashflow, arena).
 - Corré `npm run sanity` y confirmá **5/5 verdes** (determinismo, convergencia SPY ±1pp, perf 5000×360 <15s, RF yield-path IEF, RF bounds BIL).
 - Corré `npm run sanity:views` y confirmá **14 presets + ETF smoke tests verdes**.
-- Corré `npm run build` como smoke test (debe pasar limpio — incluye `postbuild` que copia el instructivo HTML a `dist/instructivo/`).
+- Corré `npm run build` como smoke test (esto es `tsc -b && vite build` — lo mismo que CI; CLAUDE.md §6 advierte que `tsc --noEmit` NO es suficiente porque CI valida `noUnusedLocals` y otras reglas estrictas).
+- Si vas a tocar Caso de Estudio TBSC: corré `npm run tbsc:demo` y compará los percentiles contra los baselines del Python (`estudios-a-la-medida`).
 
-## Estado al cierre del 2026-05-07
+## Estado al cierre del 2026-05-18
 
-Día de cierre técnico antes de la presentación interna del 2026-05-08. **Tres deploys del día a `main`** vía CI/CD GitHub Pages:
+Repo: https://github.com/andresborrerom/mercantil-planner-v2 · Pages: https://andresborrerom.github.io/mercantil-planner-v2/
 
-- `64d7855` — 8 GIFs animados en instructivo (Playwright recordVideo + ffmpeg paleta 2-pass) + `presentacion-2026-05-08.md` con guion de 30 min + script reusable `scripts/capture-gifs.ts`.
-- `65f82d7` — Drag-and-drop PDF rehidratación: nuevo `<PdfDropZone>` componente + helper `applyPdfStateToStore` testeado + 7 tests nuevos.
-- `daa46ef` — Sección C del PDF (Configuración del plan) en 4 idiomas. PDF pasa de 3 a 4 páginas (A · B · **C** · E).
+**Dos tabs en `App.tsx`:**
 
-### Feature 1 — Auth multi-usuario con Cloudflare Access (BLOQUEADO en compra dominio)
+1. **Comparador A / B** (heredado de v1, NO romper). Compara dos portafolios con AMCs/Signatures. Fan chart maduro, slider de ventana, RegimesPanel, ViewsPanel, ExportBar PDF con secciones A · B · C · D · E (5 páginas, branding Mercantil + carta del asesor).
+2. **Caso de Estudio** (v2, extensible). UN portafolio con ladder + tactical rollover + LoanEvent + inflows. TBSC (The British School Caracas, endowment $5M) ya entregado end-to-end. Worker `arena.worker.ts`, hook `useArenaWorker`, store separado `caseStudyStore.ts`, panel `CaseStudyPanel.tsx`. Fan chart con bandas DPF dorado / Custom naranja, comparador A/B/C de variantes, camino individual con re-sampleo, panel "Detalle de sleeves" (Bullets/Equity/Cash).
 
-- Dominio decidido: `mawm-lab.com` (fallbacks: `mbsadvisory-beta.com`, `mawm-beta.com`, `mawmlab.com` si .com no disponible).
-- Pocho lo compra él mismo bajo cuenta personal de Cloudflare. **NO se ha comprado al cierre del 2026-05-07.** Sigue siendo el primer paso natural del Feature 1.
-- Paso a paso de compra documentado en mensajes anteriores (resumen: Cloudflare Registrar → buscar dominio → checkout ~$10/año .com → contact info ICANN con WHOIS Privacy → verificar email → 5-10 min hasta aparecer en Account).
-- Después de comprar: configurar Cloudflare Access frente al hosting GH Pages (vite.config base URL → DNS Cloudflare proxy → Access policy con lista de emails autorizados de colegas asesores).
+**Engines portados de Python con paridad bit-a-bit** (CLAUDE.md "Estado actual"):
 
-### Feature 2 — PDF de cierre con state container (4 páginas + drag-and-drop FUNCIONAL)
+| Motor TS | Tests unit | Tests paridad |
+|---|---|---|
+| `src/domain/bullets.ts` | 15 | — |
+| `src/domain/bootstrap.ts` (ladder) | 8 | — |
+| `src/domain/rollover.ts` | 22 | 31 |
+| `src/domain/cashflow.ts` | 20 | 61 |
+| `src/domain/arena.ts` | 15 | 61 |
 
-Estado al 2026-05-07:
-- Stack: `@react-pdf/renderer` + `react-i18next` + `pdf-lib`.
-- **Botón "Generar plan personal de inversión" funcional** en `ExportBar`. Modal con form completo (cliente, asesor, bucket, versión, idioma, secciones modulares, carta personalizada).
-- Flujo end-to-end: form → render → embed metadata XMP → download → drag-and-drop devuelta → rehidrata el store.
-- **Drag-and-drop PDF FUNCIONAL** vía `<PdfDropZone>` montado en App root. Overlay azul durante drag-over, toasts ok/error con auto-dismiss 6s. Helper `applyPdfStateToStore` exportado y testeado (7 tests, incluyendo round-trip embed → extract → apply).
-- Secciones implementadas: **A (portada), B (resumen ejecutivo skeleton), C (configuración del plan), E (proyecciones con fan chart SVG + tail risk CVaR + narrative)**. Total: **4 páginas**.
-- Secciones pendientes: D1, D2, D3, **D4 (comparativo A vs B con fan chart paralelo — próximo natural)**, F (stress tests modular), G (sensibilidades modular), H, I, J, K (metodología modular), L.
-- Idiomas: ES/EN producción, FR/DE borrador con prefijo `[BROUILLON]`/`[ENTWURF]`.
-- Naming convention: `<cliente>-<bucket>[-ejec].pdf`.
-- Wealth Way opción A: un bucket por estudio. Si el cliente tiene múltiples buckets → estudios separados con naming distinto.
-- Métricas de cola en motor: CVaR + P5/P95 + meses negativos. Cableadas a sección E.
+**Suite total**: 570 vitest + 3 playwright. Cualquier cambio en estos motores debe pasar la paridad (tolerancia 1e-5/1e-7) — si rompés, hay un bug.
 
-### Instructivo del asesor
+**Decisiones semánticas congeladas** (no revertir sin discusión):
 
-- Deploy en `andresborrerom.github.io/mercantil-planner/instructivo/`.
-- 11 partes (0 a 7 + 4b + 4c) renderizadas, mobile-first responsive con drawer hamburguesa + TOC sticky.
-- **22 PNGs + 8 GIFs animados** integrados (commit `64d7855`).
-- Botón "Guía del asesor" del header del planner abre el instructivo en pestaña nueva.
-- Parte 4b actualizada al 2026-05-07: **drag-and-drop como camino primario**, pegar JSON como fallback explícito.
-- Pendientes menores: 1 screenshot del PDF (depende de logo AWM), GIF del drag-and-drop, pinear `[X]` ambiguos en Parte 5 (opcional — stats panel ya están como screenshots).
+- Fan chart del Caso de Estudio grafica **AUM gross**, NO net wealth. El préstamo es extra-portfolio (CLAUDE.md §2b).
+- Cascada de pago: cash → equity → bullet[shortest]. Alineada con IPS implícito.
+- Extension bullets: 25 default. Permite ladder hasta 30y.
+- Yield damping fix (CEILING_MULTIPLIER=1.5, FLOOR_ADJUSTMENT=0.005, DAMPING_EXPONENT=2). Sin esto p95 a 20y se infla a $119M.
+- Cap mensual de equity hardcoded a `true` en worker (no UI override).
+- Préstamo TBSC: SOFR + 150bps · cap hasta 65% AUM.
 
 ## Próximos pasos prioritarios (en orden)
 
-1. **Si hay feedback de la presentación 2026-05-08** — atender primero. Pocho avisará cualquier issue que haya surgido.
-2. **D4 — Comparativo A vs B con fan chart paralelo** en PDF (próximo natural post-C).
-3. **Compra del dominio `mawm-lab.com`** (Pocho ejecuta, te toca guiarlo si pide ayuda).
-4. **Configuración Cloudflare Access** una vez dominio activo.
-5. **Secciones restantes del PDF** (D1, D2, D3, F, G, H, I, J, K, L).
-6. **Redesign presets WealthWay** — frente abierto el 2026-05-07 con OK explícito de Pocho. Ver memoria `project_planner_redesign_presets.md` (renombrar `ahorroAcumulacion / jubilacion / herencia` a `liquidity / longevity / legacy` + alinear el modelado financiero con la doctrina). Pedir alineamiento sobre 3 puntos abiertos antes de implementar.
-7. **Redesign ExportBar** — frente abierto el 2026-05-07. Ver memoria `project_planner_redesign_exportbar.md` (separar entregable cliente del workflow técnico).
-8. **GIF animado del drag-and-drop** (~1h, requiere pre-generar PDF en script + simular `DataTransfer` drop event).
+1. **PDF del Caso de Estudio TBSC** — existe para Comparador A/B; falta para la tab nueva. Próximo natural según CLAUDE.md "Próximas extensiones esperadas".
+2. **Próximo case study particular** (otro endowment / fundación / family office cuando Pocho lo confirme). Decisión arquitectural primero: ¿extender `caseStudyStore` con campos nuevos (si la lógica es la misma) o crear `<Cliente>Store.ts` separado (si es genuinamente distinto)? Si el motor cambia (FX hedging / margin call activo / AUM en CLP), crear motor nuevo en `src/domain/` con su propia paridad Python — NO modificar `arena.ts` para soportar todos los casos (vas a romper TBSC).
+3. **Tab de comparación entre case studies** cuando haya ≥2.
+4. **Auth multi-usuario con Cloudflare Access** — dominio decidido: `mawm-lab.com` (fallbacks: `mbsadvisory-beta.com`, `mawm-beta.com`, `mawmlab.com`). Pocho compra él mismo bajo cuenta personal de Cloudflare. **NO comprado al cierre del 2026-05-18.** Después de comprar: vite.config base URL → DNS Cloudflare proxy → Access policy con lista de emails autorizados.
+5. **Frentes abiertos pre-TBSC** (no urgentes):
+   - **Redesign presets WealthWay** (ver memoria `project_planner_redesign_presets.md`). Renombrar `ahorroAcumulacion / jubilacion / herencia` a `liquidity / longevity / legacy` + alinear modelado con doctrina.
+   - **Redesign ExportBar** (ver memoria `project_planner_redesign_exportbar.md`). Separar entregable cliente (botón naranja) de utilidades técnicas (Excel + Copy + Paste JSON).
+   - GIF animado del drag-and-drop (~1h, requiere pre-generar PDF + simular `DataTransfer` drop event en Playwright).
+   - Logo Mercantil AWM hi-res (PNG/SVG) para PDF y portada del instructivo — depende de Pocho.
+   - Disclaimers EN/FR/DE (ES ya redactado en dossier sección 9.6).
+6. **Secciones restantes del PDF Comparador A/B**: D1, D2, D3, F, G, H, I, J, K, L (sección modulares).
+7. **Migración a Node 24** cuando expire deprecation de Node 20 (junio 2026).
 
 ## Pendientes de Pocho
 
-- Logo Mercantil AWM en alta resolución (PNG/SVG) para el PDF y portada del instructivo.
-- Paleta y tipografía corporativa final del PDF (placeholders profesionales hoy en `src/pdf/theme/`).
-- Revisión por hablante nativo de FR y DE en los textos del PDF (banner BORRADOR activo hasta entonces).
-- Disclaimers EN/FR/DE (ES ya redactado en dossier sección 9.6).
+- Logo Mercantil AWM en alta resolución (PNG/SVG).
+- Paleta y tipografía corporativa final del PDF (hoy está aplicado branding base, ver `src/pdf/theme/`).
+- Revisión por hablante nativo de FR y DE en los textos del PDF.
+- Compra del dominio `mawm-lab.com`.
 
 ## Backlog Fase E
 
 - Inflación nominal/real en cada corrida (idea Pocho: diferencial histórico curvas tasa-fija/inflación vs spread actual como proxy). NO MVP.
 
+## Comandos clave
+
+```bash
+npm run dev                # Vite dev server en localhost:5173 (corre build-data.mjs primero)
+npm run build              # tsc -b && vite build — mismo que CI
+npm run preview            # Sirve dist/ para smoke test
+npx vitest run             # 570 tests del dominio
+npm run sanity             # 5 chequeos sanidad bootstrap (convergencia SPY, perf, RF)
+npm run sanity:views       # 14 presets + ETF smoke tests
+npm run tbsc:demo          # Reproduce TBSC y compara contra Python (estudios-a-la-medida)
+npm run capture:instructivo # 22 PNGs del instructivo
+npx tsx scripts/capture-gifs.ts # 8 GIFs animados
+npx playwright test        # 3 e2e
+```
+
+## Patrón de push a producción (token bypass)
+
+Credential Manager de Windows tiende a colgarse. Patrón confiable (CLAUDE.md §7):
+
+```powershell
+$token = (& <gh.exe> auth token).Trim()
+& git push "https://x-access-token:$token@github.com/andresborrerom/mercantil-planner-v2.git" main
+```
+
+PowerShell marca "NativeCommandError" porque git escribe a stderr (progreso normal, no error). **Verificar siempre con `git ls-remote origin main` después.**
+
 ## Visor de documentos (auxiliar)
 
-Para revisar el material del proyecto en un visor HTML local con sidebar fijo:
+`npm run docs:viewer` regenera `research/index.html` (autocontenido, ~450 KB) — indexa los .md del planner root + research + samples + estudio benchmark.
 
-- `npm run docs:viewer` regenera `research/index.html` (autocontenido, ~450 KB).
-- Indexa: 4 .md del planner root + 2 .md research + 4 PDFs samples + 4 .md del estudio benchmark.
-- `index.html` y `samples/` están gitignored — se regeneran cada vez que cambia contenido.
-
-## Pipeline operativo de captura visual
-
-- **Screenshots del instructivo** (22 PNGs): `scripts/capture-instructivo.ts`. Pre-requisito: `npm run preview` corriendo en port 4173. Comando: `npm run capture:instructivo`.
-- **GIFs del instructivo** (8 GIFs): `scripts/capture-gifs.ts`. Pre-requisito: `npm run preview` + `ffmpeg` en PATH (`winget install Gyan.FFmpeg.Essentials`). Comando: `npx tsx scripts/capture-gifs.ts` (corre los 8 specs) o filtrado por nombre parcial.
-- **Build del instructivo HTML**: `npm run instructivo:build:dist` (production a `dist/instructivo/`). Se incluye automático en `npm run build` vía `postbuild`.
+---
 
 Cuando todo esté verde, decime qué entendiste del estado actual del proyecto y proponé el siguiente paso. **Esperá mi OK antes de tocar archivos.**

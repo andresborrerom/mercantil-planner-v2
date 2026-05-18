@@ -3143,3 +3143,177 @@ Próximos pasos en orden (sin urgencia hoy — depende de cómo vaya la presenta
 7. Logo + paleta corporativa AWM hi-res.
 8. Disclaimer EN/FR/DE.
 
+---
+
+## 2026-05-08 — Cierre PDF: branding Mercantil + carta del asesor + sección D comparativa
+
+Día post-presentación. Cierre de pendientes del PDF detectados durante el ensayo y la demo.
+
+### Commits del día (sobre `main`)
+
+- `83eac47` — `feat(pdf): abrir PDF en pestaña nueva además de descargar`. Mejora UX: el asesor ve el PDF inmediatamente sin tener que bajarlo del Downloads.
+- `77ed32b` — `feat(pdf): branding Mercantil + carta del asesor + sección D comparativa`. Tres cambios juntos: paleta/tipografía corporativa aplicada al PDF, bloque "Carta del asesor" en portada con texto libre del modal, **sección D — comparativo A vs B con fan chart paralelo** (D4 del backlog). PDF pasa de 4 a 5 páginas (A · B · C · D · E).
+- `38d9090` — `fix(types): destrabar tsc -b — tipos delta en D + JSX.Element residual`. Cierre de los TS errors que aparecían solo en CI `tsc -b` modo project references (paridad con CLAUDE.md §6 "tsc -b como source-of-truth").
+- `466bd22` — `chore(assets): agregar logo Mercantil Servicios Financieros Internacional`. Logo embebido en el PDF.
+
+### Estado al cierre 2026-05-08
+
+PDF en 5 páginas (A/B/C/D/E) con branding aplicado y carta del asesor en portada. Backlog del PDF queda: D1, D2, D3, F, G, H, I, J, K, L (secciones modulares).
+
+---
+
+## 2026-05-12 — H1 a H5: arquitectura v2 + Caso de Estudio TBSC
+
+Día de salto cualitativo. Cinco hitos H1 a H5 que materializan la promesa de v2 (bullet ladder + rollover táctico + bank loan facility + tickers low-vol/dividend) y agregan la segunda tab "Caso de Estudio" para TBSC (The British School Caracas endowment $5M).
+
+### H1 — Tickers nuevos (commit `efc5130`)
+
+CSV extendido + `build-data.mjs` con proxies para los 5 ETFs nuevos del scope v2:
+
+| Nuevo ticker | Bucket | Proxy backfill |
+|---|---|---|
+| USMV | Equity low-vol US | SPLV (cuando falte SPLV→SPY) |
+| SPLV | Equity low-vol US | SPY |
+| SCHD | Equity high-dividend US | NOBL |
+| NOBL | Equity dividend aristocrats | SCHD |
+| SHY | 1-3Y treasuries | SPTS |
+
+`etf-labels` con nuevo grupo `equityLowVolDiv`. Total: **37 tickers** (era 32). Validación post-imputación: cero NaN.
+
+### H2a — `bullets.ts` modelo paramétrico (commit `7cced5d`)
+
+Port de `bullet_tier.py` a TS. Implementa el modelo de bullet bond paramétrico con tres tiers de validación:
+
+- **T1**: bond a 12 meses con cupón 4.07% → match exacto vs Python.
+- **T2**: shock instantáneo de 100bp → -8.49% precio (duración modificada × 100bp).
+- **T3**: roll-down positivo en curva normal → componente alpha confirmado.
+
+15 tests verdes. Decomposición `bulletReturnDecomp` = curve + roll + convex (CLAUDE.md §1 lo marca como "NO simplificar a carry + dur × dy").
+
+### H2b + H3 + H4 + H5a — Engines completos (commit `e637892`)
+
+Cuatro motores portados en una corrida, todos con paridad bit-a-bit contra Python:
+
+| Motor TS | Port de | Tests unit | Tests paridad | Tolerancia |
+|---|---|---|---|---|
+| `rollover.ts` | `code/rollover.py` | 22 | 31 | 1e-7 |
+| `cashflow.ts` | `code/cashflow.py` | 20 | 61 | 1e-7 |
+| `arena.ts` | `code/arena_extended.py` | 15 | 61 | 1e-5 |
+
+Decisiones clave congeladas en `arena.ts` y `cashflow.ts`:
+- **Cascada de pago**: cash → equity → bullet[shortest]. Orden alineado con IPS implícito (proteger bullets largos primero).
+- **Extension bullets**: +1y arriba del longest real, **25 extensions default** (permite ladder hasta 30y).
+- **Yield damping** en `bootstrap.ts:580–610`: `CEILING_MULTIPLIER=1.5`, `FLOOR_ADJUSTMENT=0.005`, `DAMPING_EXPONENT=2` (sin esto, p95 a 20y se inflaba a $119M — bug original).
+
+Fix paralelo: `tsc -b` (modo project references) destrabado para `noUnusedLocals: true`.
+
+### H5b — UI Caso de Estudio (commit `124b763`)
+
+Arquitectura modular para case studies particulares:
+
+```
+arena.worker.ts          ← cálculo en Web Worker (read inputs → postMessage result)
+useArenaWorker.ts        ← React hook (.run() devuelve Promise)
+caseStudyStore.ts        ← Zustand store SEPARADO del store principal
+CaseStudyPanel.tsx       ← UI que consume hook + store
+```
+
+Tab nueva en `App.tsx` paralela al Comparador A/B. UN portafolio con ladder + tactical rollover + LoanEvent + inflows. Inputs jerárquicos: Mercado / Allocation / Flujos / Préstamo (toggle) / Avanzado (collapsible). Validación de allocation suma=100%, botón Simular se deshabilita si no.
+
+### H5c — `scripts/run-tbsc.ts` (commit `d2ffc3c`)
+
+Script standalone (`npm run tbsc:demo`) que reproduce el caso TBSC desde v2 y lo compara estadísticamente contra Python (medianas/percentiles). Patrón análogo a `code/dump_*_parity.py` de `estudios-a-la-medida`. Permite detectar divergencias sin paridad bit-a-bit (donde el PRNG o block sampling difieren).
+
+### Fix de deploy (commit `3fff7be`)
+
+`vite.config.ts` `base` apuntaba a `/mercantil-planner/` (path de v1) → pantalla negra en Pages. Corregido a `/mercantil-planner-v2/`.
+
+### Refinamientos Caso de Estudio (commits `75470d7`, `2782357`, `5c7df6c`, `751af72`)
+
+Aplicación del **patrón FanChart canónico** al Caso de Estudio (CLAUDE.md §2):
+- Bandas como tuplas `dataKey={[lower, upper]}` (no Areas apilados).
+- X-axis `type="number"` + `domain` + `ticks` (no `type="category"` con tickFormatter redondeando).
+- Y-axis dinámico computado solo sobre data DENTRO de la ventana visible + ReferenceLines de capital inicial / savings baseline.
+- Slider de ventana + chips 1y/3y/5y/10y/15y/20y (default 20y).
+- Callouts pedagógicos corto plazo (volatilidad) / largo plazo (no cumplir objetivo).
+- Deposit como serie temporal (no horizontal), Y axis correcto.
+- Sección "Detalle de los sleeves" con 3 cards (Bullets/Equity/Cash) collapsible.
+- **Inputs numéricos** con patrón draft local (NumInput) — fix del bug clásico documentado en CLAUDE.md §3.
+
+### Estado al cierre 2026-05-12
+
+CLAUDE.md actualizado con todo el patrón canónico (worker→hook→store→component, FanChart pattern, draft local en inputs, sleeves como concepto operativo, paridad Python como contrato, `tsc -b` source-of-truth). Suite total: **570 vitest + 3 playwright**.
+
+---
+
+## 2026-05-13 — Refinamientos Caso de Estudio (UX + DPF baseline + préstamo rev 2026)
+
+Día de iteración fina sobre la tab Caso de Estudio. Sin tocar engines (paridad intacta).
+
+### Comparador de variantes A/B/C (commit `f7c2b8c`)
+
+Tres variantes del mismo caso comparables in-place, con panel explicativo de cuál régimen estresa cada una. Permite responder "¿y si subo el equity al 30%?" sin recorrer la simulación entera por separado.
+
+### Camino individual con re-sampleo (commit `faed83c`)
+
+Toggle para mostrar UN path específico de las 500 sims (analogía con el "sample path" del Comparador A/B). Re-sampleo on-click. Fix paralelo de paleta de colores entre variantes.
+
+### DPF1Y baseline en fan chart (commits `b7877a8`, `9c5aded`, `0b06ebf`, `d54cd7d`, `34f64f1`)
+
+Baseline DPF (Depósito a Plazo Fijo 1Y) como punto de referencia para responder "¿agrega valor el ladder vs solo DPF?".
+
+Iteración fina en cinco commits:
+1. `b7877a8`: toggle DPF1Y + camino individual.
+2. `9c5aded`: DPF1Y **per-sim paired** con yield paths del bootstrap (no constante — sigue la curva del simulado, apples-to-apples).
+3. `0b06ebf`: override de tasa inicial DPF desde UI + bandas DPF en fan chart.
+4. `d54cd7d`: `DpfRateInput` con draft local (mismo patrón que NumInput) — el input numérico era controlado y se trababa al tipear "5.25".
+5. `34f64f1`: **fan chart grafica AUM gross, NO net wealth**. Decisión semántica importante (CLAUDE.md §2b): el préstamo del modelo es extra-portfolio, graficar `netWealthPath` muestra un brinco hacia abajo el día del desembolso que es contablemente válido pero conceptualmente engañoso. Paleta DPF dorado / Custom naranja.
+
+### Cap mensual de equity (commits `399fff8`, `a9d4cbf`, `0af5792`)
+
+Combinación A+B aplicada en `cashflow.ts`. Fixtures de paridad regenerados con cap activo (Python convergido). Worker hardcoded a `true` sin override desde UI (decisión: el cap es parte del modelo, no parámetro del asesor).
+
+### Cap de duración del sleeve DPF + DPF gris / Custom naranja (commit `dd57b2f`)
+
+Paleta consolidada del Caso de Estudio: DPF gris como baseline visual neutro, Custom naranja como portfolio activo. Cap de duración del sleeve aplicado.
+
+### Préstamo revisión 2026 (commit `e2d9197`)
+
+`feat(case-study)`: SOFR + 150bps · cap hasta 65% AUM. Refleja términos actualizados negociables para TBSC.
+
+### Tooltips Caso de Estudio (commit `44307b8`, último del cierre)
+
+Tooltips anclados arriba-izquierda con fuente compacta — evita que oculten la curva en simulaciones largas.
+
+### Estado al cierre 2026-05-13
+
+Branch `main` con todo desplegado a Pages. Working tree limpio. Suite: 570 vitest + 3 playwright. **Caso de Estudio TBSC funcional end-to-end** desde la URL pública. Patrón modular probado: el próximo case study reusa `arena.worker.ts` + extiende `caseStudyStore` o crea un store-slice propio según la lógica del cliente.
+
+---
+
+## 2026-05-18 — Housekeeping de documentación
+
+Sesión de cierre limpio post-TBSC. Sin cambios de código.
+
+### Qué se hizo
+
+- Releída la trayectoria completa del proyecto (README + CLAUDE.md + progreso-planner.md + PROMPT-NUEVA-SESION.md + presentacion-2026-05-08.md).
+- Detectada desalineación: `progreso-planner.md` terminaba en 2026-05-07 (pre-presentación) y no reflejaba los 17 commits del 2026-05-08 al 2026-05-13 (PDF Mercantil branding + D4, hitos H1-H5 con engines + Caso de Estudio TBSC, refinamientos UX/DPF/préstamo).
+- `PROMPT-NUEVA-SESION.md` también desactualizado (pedía arrancar en `feature/pdf-cierre`, citaba 337 tests cuando hoy son 570, listaba D4 como pendiente cuando ya está hecho en `77ed32b`).
+- CLAUDE.md sí estaba al día (última actualización 2026-05-12) — sigue siendo la fuente más confiable.
+
+### Cambios
+
+- `progreso-planner.md`: 4 entradas nuevas (2026-05-08, 2026-05-12, 2026-05-13 y esta de housekeeping) consolidando todo el período.
+- `PROMPT-NUEVA-SESION.md`: refresh completo al estado actual.
+
+### Próximos pasos prioritarios (en orden)
+
+1. **PDF del Caso de Estudio TBSC**. Existe el PDF para Comparador A/B; falta para la tab nueva. Próximo natural según CLAUDE.md ("Próximas extensiones esperadas").
+2. **Próximo case study particular** (otro endowment / fundación / family office). Validar arquitectura: `caseStudyStore` extendido vs store-slice nuevo según divergencia de lógica.
+3. **Tab de comparación entre case studies** cuando haya ≥2.
+4. **Auth Cloudflare Access** con dominio `mawm-lab.com` (depende de Pocho).
+5. Frentes abiertos pre-TBSC: redesign presets WealthWay (`liquidity / longevity / legacy`), redesign ExportBar (separar entregable cliente de utilidades técnicas), GIF del drag-and-drop, logo AWM hi-res, disclaimers EN/FR/DE.
+6. Secciones restantes del PDF Comparador A/B: D1, D2, D3, F, G, H, I, J, K, L.
+7. Migración a Node 24 cuando expire deprecation de Node 20 (junio 2026).
+
