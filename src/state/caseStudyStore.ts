@@ -21,7 +21,7 @@ import type { ArenaJobInput, ArenaJobOutput } from '../workers/arena.worker';
 
 export type CaseStudyStatus = 'idle' | 'running' | 'done' | 'error';
 
-/** Subset editable del ArenaJobInput. El resto (realBullets, equityMix, cashTicker) se fija. */
+/** Subset editable del ArenaJobInput. El resto (realBullets, cashTicker) se fija. */
 export type CaseStudyConfig = {
   initialAumUsd: number;
   horizonMonths: number;
@@ -42,6 +42,16 @@ export type CaseStudyConfig = {
   thresholds: RolloverThresholds;
   rolloverEnabled: boolean;
   cashBandUpper: number;
+  /**
+   * Mix custom del sleeve de equity. Cada entry { ticker, weight } pesa
+   * dentro del sleeve (no del AUM total — eso lo hace equityPct). Los pesos
+   * son los del UI; configToJobInput los normaliza a suma=1 al envío.
+   *
+   * Default del entregable: USMV 50% / SCHD 50% (is_default=true en el meta
+   * JSON del catálogo). El selector custom permite explorar otros mixes sin
+   * cambiar el default.
+   */
+  equityMix: ReadonlyArray<{ ticker: string; weight: number }>;
   /**
    * Override de la tasa inicial del DPF1Y baseline (decimal anual, e.g.,
    * 0.0525 = 5.25%). Útil cuando el cliente trae una oferta concreta del
@@ -84,10 +94,26 @@ export const DEFAULT_CASE_CONFIG: CaseStudyConfig = {
   dpfRateOverride: null,
   maxBulletYearsEnabled: false,
   maxBulletYears: 4,
+  equityMix: [
+    { ticker: 'USMV', weight: 0.5 },
+    { ticker: 'SCHD', weight: 0.5 },
+  ],
 };
 
 /** Convierte CaseStudyConfig → ArenaJobInput aplicando defaults fijos. */
 export function configToJobInput(config: CaseStudyConfig): ArenaJobInput {
+  // Normaliza pesos del mix al envío. El UI mantiene pesos arbitrarios para
+  // permitir edición fluida (sliders independientes); el motor requiere suma=1.
+  const totalW = config.equityMix.reduce((s, m) => s + m.weight, 0);
+  if (!(totalW > 0)) {
+    throw new Error(
+      'configToJobInput: equityMix con suma de pesos <= 0. Seleccioná al menos un ticker.',
+    );
+  }
+  const equityMixNormalized = config.equityMix.map((m) => ({
+    ticker: m.ticker,
+    weight: m.weight / totalW,
+  }));
   return {
     realBullets: null, // worker usará defaultBulletLineup()
     nExtensions: 25,
@@ -97,10 +123,7 @@ export function configToJobInput(config: CaseStudyConfig): ArenaJobInput {
     cashPct: config.cashPct,
     eqtyMin: config.eqtyMin,
     eqtyMax: config.eqtyMax,
-    equityMix: [
-      { ticker: 'USMV', weight: 0.5 },
-      { ticker: 'SCHD', weight: 0.5 },
-    ],
+    equityMix: equityMixNormalized,
     cashTicker: 'BIL',
     initialSpread: config.initialSpread,
     thresholds: config.thresholds,
