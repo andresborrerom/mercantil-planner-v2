@@ -1,5 +1,8 @@
 /**
- * CaseStudyPanel — UI del orquestador end-to-end (caso TBSC y variantes).
+ * CaseStudyPanel — UI del orquestador end-to-end del Caso de Estudio.
+ * El cliente parametriza su propio caso desde el panel; el modelo del
+ * primer entregable (TBSC, endowment colegial) sigue disponible como
+ * config inicial via DEFAULT_CASE_CONFIG.
  *
  * Inputs editables:
  *   - Market: initialAumUsd, horizonMonths, nSims, seed
@@ -315,8 +318,9 @@ export default function CaseStudyPanel() {
   const removeVariant = useCaseStudyStore((s) => s.removeVariant);
   const clearVariants = useCaseStudyStore((s) => s.clearVariants);
   const [variantLabel, setVariantLabel] = useState('');
-  // Toggle de baseline DPF1Y. Default ON: la junta debe ver siempre el "qué
-  // pasa si no hago nada fancy" para entender el valor relativo de la propuesta.
+  // Toggle de baseline DPF1Y. Default ON: el cliente debe ver siempre el
+  // "qué pasa si no hago nada fancy" para entender el valor relativo de la
+  // propuesta. Aplica a personas naturales y jurídicas por igual.
   const [showDpfBaseline, setShowDpfBaseline] = useState(true);
 
   // Sim index para el "camino individual" — una sola simulación de las N para
@@ -849,7 +853,7 @@ export default function CaseStudyPanel() {
         {/* --- Flows --- */}
         <fieldset className="space-y-2">
           <legend className="text-xs uppercase tracking-wider text-mercantil-slate dark:text-mercantil-dark-slate font-medium">
-            Flujos (aportes anuales del endowment)
+            Flujos (aportes anuales)
           </legend>
           <div className="grid grid-cols-2 gap-3">
             <NumInput
@@ -1002,7 +1006,7 @@ export default function CaseStudyPanel() {
         {/* --- Run button --- */}
         <div className="flex items-center justify-between pt-2">
           <div className="text-xs text-mercantil-slate dark:text-mercantil-dark-slate">
-            Defaults: TBSC (5M, 10y, ladder iBonds + 25 extensiones, USMV+SCHD, BIL).
+            Configuración preconfigurada: 5M USD, 20y, ladder iBonds + 25 extensiones, USMV+SCHD, BIL.
           </div>
           <button
             onClick={handleRun}
@@ -1379,7 +1383,7 @@ export default function CaseStudyPanel() {
               <div className="p-3 rounded border border-mercantil-line dark:border-mercantil-dark-line">
                 <strong className="text-mercantil-ink dark:text-mercantil-dark-ink">Lado izquierdo · corto plazo:</strong>{' '}
                 las bandas son angostas. El riesgo dominante es <strong>volatilidad mark-to-market</strong> — drawdowns
-                puntuales que la junta vería en el reporting trimestral.
+                puntuales visibles en el reporting trimestral del cliente.
               </div>
               <div className="p-3 rounded border border-mercantil-line dark:border-mercantil-dark-line">
                 <strong className="text-mercantil-ink dark:text-mercantil-dark-ink">Lado derecho · largo plazo:</strong>{' '}
@@ -1938,10 +1942,11 @@ function RegimesDetailPanel({
       </div>
 
       <div className="mt-4 p-3 rounded bg-mercantil-bg-soft/40 border border-mercantil-line dark:border-mercantil-dark-line text-xs">
-        <strong className="text-mercantil-ink dark:text-mercantil-dark-ink">Para la junta:</strong>{' '}
+        <strong className="text-mercantil-ink dark:text-mercantil-dark-ink">Para el cliente:</strong>{' '}
         la regla A/B/C no es una decisión discrecional — es una <strong>regla escrita, paired bootstrap,
-        determinista dado el seed</strong>. Mercantil opera la regla; la junta calibra parámetros
-        (X, eqty_max, thresholds) en la sesión inicial. Eso se traduce al IPS final.
+        determinista dado el seed</strong>. Mercantil opera la regla; el cliente (o su comité, según el
+        caso) calibra parámetros (X, eqty_max, thresholds) en la sesión inicial. Eso queda documentado
+        en las directrices de inversión del entregable final.
       </div>
     </div>
   );
@@ -2103,8 +2108,8 @@ function SleevesDetailPanel({ config }: { config: CaseStudyConfig }) {
           <div className="px-4 pb-4 pt-2 text-sm space-y-3">
             <p>
               Sleeve <strong>defensivo de calidad</strong>: NO es un sleeve de crecimiento. La decisión fue priorizar
-              downside protection sobre upside máximo, dado el horizonte y el riesgo reputacional para la junta de
-              un drawdown grande en reporting trimestral.
+              downside protection sobre upside máximo, dado el horizonte y el costo (operativo y emocional)
+              de un drawdown grande visible en el reporting trimestral.
             </p>
 
             <div>
@@ -2192,8 +2197,8 @@ function SleevesDetailPanel({ config }: { config: CaseStudyConfig }) {
                   <p className="text-xs">
                     <strong>100% Estados Unidos</strong> por construcción de ambos ETFs. Sin internacional desarrollado,
                     sin emergentes. Es un sesgo deliberado: el universo USA tiene la mejor diversificación
-                    sectorial doméstica y la liquidez más profunda para los flujos del endowment. Si en una revisión
-                    futura la junta valora diversificación geográfica, se puede sustituir 30–50% del sleeve por ACWX
+                    sectorial doméstica y la liquidez más profunda para los flujos del cliente. Si en una revisión
+                    futura se valora diversificación geográfica, se puede sustituir 30–50% del sleeve por ACWX
                     (ex-US developed) o ACWI (global) sin tocar el resto del modelo.
                   </p>
                 </div>
@@ -2246,7 +2251,7 @@ function SleevesDetailPanel({ config }: { config: CaseStudyConfig }) {
           <div className="px-4 pb-4 pt-2 text-sm space-y-3">
             <p>
               <strong>Buffer de liquidez operativa</strong>. No es un sleeve de retorno — su rol es absorber
-              flujos (inflows del endowment, cuotas del préstamo si está activado, exceso de rebalanceo) y
+              flujos (aportes recurrentes, cuotas del préstamo si está activado, exceso de rebalanceo) y
               servir de primera línea en la cascada de ventas forzadas.
             </p>
 
@@ -2290,7 +2295,7 @@ function SleevesDetailPanel({ config }: { config: CaseStudyConfig }) {
               </div>
               <ul className="text-xs space-y-0.5">
                 <li>• <strong>Primera línea en cascada de pago</strong>: cuando hay préstamo activo y se paga la cuota mensual, primero se vacía cash, después equity, después bullet corto.</li>
-                <li>• <strong>Absorción de inflows</strong>: los $250k/yr del endowment entran como cash y se acumulan hasta superar la banda ({(config.cashBandUpper * 100).toFixed(0)}% del AUM total).</li>
+                <li>• <strong>Absorción de aportes</strong>: los {fmtMoney(config.inflowBaseAnnual)}/yr de aportes entran como cash y se acumulan hasta superar la banda ({(config.cashBandUpper * 100).toFixed(0)}% del AUM total).</li>
                 <li>• <strong>Trigger de rebalanceo</strong>: cuando cash share supera {(config.cashBandUpper * 100).toFixed(0)}%, el exceso se distribuye a bullets (proporcional al peso vivo de cada bullet) y a equity (según plan strategic 65/30/5). Esto mantiene la composición target sin operaciones discrecionales.</li>
                 <li>• <strong>Margen de seguridad</strong>: en el escenario de préstamo + caída de mercados, el cash sleeve evita ventas forzadas inmediatas de bullets cuando hay un mes adverso.</li>
               </ul>
