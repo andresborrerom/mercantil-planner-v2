@@ -35,6 +35,12 @@ const EXPECTED_TICKERS = [
   'RWO', 'JXI',
   // v2 H1 (2026-05-12): tickers nuevos para low-vol equity + short cash
   'USMV', 'SPLV', 'SCHD', 'NOBL', 'SHY',
+  // v2 H6 (2026-05-21): universo equity custom del selector (catálogo
+  // alimentado por estudios-a-la-medida/data/equity_universe_meta.json).
+  // SPMO y CAPE ya vienen spliceados con PDP/RPV en estudios_retornos.csv
+  // para extender historia (ver UNIVERSO.md §3 bis). Lo que sigue cubierto
+  // por NAN_PROXY_MAP es solo el residuo pre-splice.
+  'SPHQ', 'SPYD', 'OEF', 'QQQ', 'RSP', 'SPMO', 'CAPE',
 ];
 
 /** RF tickers tal como aparecen en mercantil_rf_decomposed.csv (orden sensible). */
@@ -77,6 +83,15 @@ const NAN_PROXY_MAP = {
   SCHD: 'IWD', //   Schwab US Dividend → US value (lanzado 2011-10)
   NOBL: 'IWD', //   S&P Dividend Aristocrats → US value (lanzado 2013-10)
   // SHY: no proxy — historia completa desde 2006-01
+  // v2 H6 (2026-05-21): proxies para universo equity custom. SPMO y CAPE ya
+  // vienen spliceados con PDP/RPV desde estudios-a-la-medida; lo de acá
+  // cubre solo el residuo pre-splice contra el grid del planner (2006-01+).
+  // SPHQ/OEF/QQQ/RSP: historia completa, no necesitan proxy.
+  // SPYD se procesa DESPUÉS de SCHD para que la imputación encadene IWD→SCHD→SPYD
+  // (el código de imputación lee RETURNS[proxy] que ya fue rellenado en pasadas previas).
+  SPMO: 'SPY', //   S&P Momentum factor → US blend (splice c/ PDP arranca 2007-04; restan 15m a SPY)
+  CAPE: 'IWD', //   Shiller CAPE rotation → US value (splice c/ RPV arranca 2006-04; restan 3m a IWD)
+  SPYD: 'SCHD', //  S&P high-dividend top-80 → dividend equity (lanzado 2015-10; 118m via SCHD→IWD transitivo)
 };
 
 // --------------------------------------------------------------------------

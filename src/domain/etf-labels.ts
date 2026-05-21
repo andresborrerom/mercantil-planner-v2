@@ -89,11 +89,20 @@ export const ETF_LABELS: Readonly<Record<Ticker, EtfLabel>> = {
   IWD: { short: 'Value US', group: 'equityStyle' },
   IWF: { short: 'Growth US', group: 'equityStyle' },
 
+  // Estilos / factores adicionales US — v2 H6 (equity custom del comité)
+  SPHQ: { short: 'Quality S&P 500', group: 'equityStyle' },
+  RSP: { short: 'S&P 500 equal weight', group: 'equityStyle' },
+  SPMO: { short: 'Momentum S&P 500', group: 'equityStyle' },
+  CAPE: { short: 'Shiller CAPE rotation', group: 'equityStyle' },
+  OEF: { short: 'S&P 100 mega cap', group: 'equityBroad' },
+  QQQ: { short: 'NASDAQ-100', group: 'equityBroad' },
+
   // Baja volatilidad / Dividendo (EEUU) — v2 H1
   USMV: { short: 'Baja vol MSCI US', group: 'equityLowVolDiv' },
   SPLV: { short: 'Baja vol S&P 500', group: 'equityLowVolDiv' },
   SCHD: { short: 'Dividendo Schwab', group: 'equityLowVolDiv' },
   NOBL: { short: 'Aristócratas dividendo', group: 'equityLowVolDiv' },
+  SPYD: { short: 'S&P 500 high dividend', group: 'equityLowVolDiv' },
 
   // Sectores globales
   IXN: { short: 'Tecnología', group: 'equitySector' },

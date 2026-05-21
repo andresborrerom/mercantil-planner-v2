@@ -32,6 +32,7 @@ import {
 import { computeMonthlyInflow } from '../domain/cashflow';
 import { getYieldBounds } from '../domain/bootstrap';
 import RangeSlider from './RangeSlider';
+import EquityMixSelector from './EquityMixSelector';
 import { useArenaWorker } from '../hooks/useArenaWorker';
 import {
   configToJobInput,
@@ -748,13 +749,14 @@ export default function CaseStudyPanel() {
               suffix="%"
             />
             <NumInput
-              label="Equity (USMV+SCHD)"
+              label="Equity"
               value={config.equityPct * 100}
               onChange={(v) => setConfig({ equityPct: v / 100 })}
               step={1}
               min={0}
               max={100}
               suffix="%"
+              hint="mix configurable abajo"
             />
             <NumInput
               label="Cash (BIL)"
@@ -794,6 +796,19 @@ export default function CaseStudyPanel() {
               max={100}
               suffix="%"
               hint="banda dura del rollover"
+            />
+          </div>
+          {/* Mix custom del sleeve de equity. Default = USMV 50% / SCHD 50%
+              (el del entregable). El selector expone el catálogo completo
+              servido por estudios-a-la-medida via GitHub Pages, con fallback
+              inline si el fetch falla. */}
+          <div className="pt-2 border-t border-mercantil-line dark:border-mercantil-dark-line">
+            <div className="text-xs uppercase tracking-wider text-mercantil-slate dark:text-mercantil-dark-slate font-medium mb-2">
+              Renta variable — mix custom
+            </div>
+            <EquityMixSelector
+              value={config.equityMix}
+              onChange={(next) => setConfig({ equityMix: next })}
             />
           </div>
           {/* Cap de duración del sleeve. Default OFF: lineup completo (ID26-ID36S,
@@ -1831,6 +1846,24 @@ function SleevesDetailPanel({ config }: { config: CaseStudyConfig }) {
   const eqtyMin = (config.eqtyMin * 100).toFixed(0);
   const eqtyMax = (config.eqtyMax * 100).toFixed(0);
   const spreadBp = (config.initialSpread * 10000).toFixed(0);
+  // Mix de equity normalizado para el summary del card. El config guarda
+  // pesos arbitrarios; acá los presentamos como % del sleeve (suma=100).
+  const equityMixTotal = config.equityMix.reduce((s, m) => s + m.weight, 0);
+  const equityMixSummary =
+    config.equityMix.length === 0 || equityMixTotal <= 0
+      ? 'sin tickers'
+      : config.equityMix
+          .map((m) => `${Math.round((m.weight / equityMixTotal) * 100)}% ${m.ticker}`)
+          .join(' + ');
+  // Texto contextual de la composición — el bloque de descripciones de la
+  // card de equity se construye desde el mix actual en vez del antiguo
+  // "USMV+SCHD" hardcoded.
+  const isDefaultMix =
+    config.equityMix.length === 2 &&
+    config.equityMix.every((m) =>
+      (m.ticker === 'USMV' || m.ticker === 'SCHD') &&
+      Math.abs(m.weight / equityMixTotal - 0.5) < 1e-9,
+    );
 
   return (
     <div className="bg-white dark:bg-mercantil-dark-panel rounded-lg border border-mercantil-line dark:border-mercantil-dark-line p-5">
@@ -1944,7 +1977,7 @@ function SleevesDetailPanel({ config }: { config: CaseStudyConfig }) {
               <span className="inline-block w-3 h-3 rounded-sm" style={{ background: '#F58220' }} />
               <strong className="text-mercantil-ink dark:text-mercantil-dark-ink">Sleeve Equity</strong>
               <span className="text-xs text-mercantil-slate dark:text-mercantil-dark-slate">
-                {equityAumPct}% del AUM · 50% USMV + 50% SCHD · banda [{eqtyMin}%, {eqtyMax}%]
+                {equityAumPct}% del AUM · {equityMixSummary} · banda [{eqtyMin}%, {eqtyMax}%]
               </span>
             </span>
             <span className="text-xs text-mercantil-orange">click para detalle ▾</span>
@@ -1958,26 +1991,43 @@ function SleevesDetailPanel({ config }: { config: CaseStudyConfig }) {
 
             <div>
               <div className="font-semibold text-mercantil-ink dark:text-mercantil-dark-ink text-xs uppercase tracking-wider mb-1">
-                Composición: 2 ETFs
+                Composición actual
               </div>
-              <ul className="text-xs space-y-1.5">
-                <li>
-                  <strong>USMV (50% del sleeve)</strong> — iShares MSCI USA Min Vol Factor ETF.
-                  ~190 holdings seleccionados por optimización de volatilidad mínima sobre el universo MSCI USA.
-                  Expense ratio 0.15%. AUM &gt; $30B. Bias hacia healthcare, consumer staples, comunicaciones.
-                  Volatilidad histórica ~12% anual (vs ~15% del S&amp;P 500).
-                </li>
-                <li>
-                  <strong>SCHD (50% del sleeve)</strong> — Schwab US Dividend Equity ETF.
-                  ~100 holdings con ≥10 años de dividendos consecutivos, screen de calidad fundamental
-                  (cash flow / debt, ROE, dividend growth). Expense ratio 0.06%. AUM &gt; $60B. Bias hacia
-                  financieros, industriales, healthcare, energy. Yield ~3.5%.
-                </li>
-              </ul>
-              <p className="text-xs mt-2 italic text-mercantil-slate dark:text-mercantil-dark-slate">
-                Overlap USMV ∩ SCHD: ~25–30 holdings comunes (large cap defensivo + dividendo alto suelen coincidir).
-                Eso amplifica el bias defensivo combinado.
-              </p>
+              {isDefaultMix ? (
+                <>
+                  <ul className="text-xs space-y-1.5">
+                    <li>
+                      <strong>USMV (50% del sleeve)</strong> — iShares MSCI USA Min Vol Factor ETF.
+                      ~190 holdings seleccionados por optimización de volatilidad mínima sobre el universo MSCI USA.
+                      Expense ratio 0.15%. AUM &gt; $30B. Bias hacia healthcare, consumer staples, comunicaciones.
+                      Volatilidad histórica ~12% anual (vs ~15% del S&amp;P 500).
+                    </li>
+                    <li>
+                      <strong>SCHD (50% del sleeve)</strong> — Schwab US Dividend Equity ETF.
+                      ~100 holdings con ≥10 años de dividendos consecutivos, screen de calidad fundamental
+                      (cash flow / debt, ROE, dividend growth). Expense ratio 0.06%. AUM &gt; $60B. Bias hacia
+                      financieros, industriales, healthcare, energy. Yield ~3.5%.
+                    </li>
+                  </ul>
+                  <p className="text-xs mt-2 italic text-mercantil-slate dark:text-mercantil-dark-slate">
+                    Overlap USMV ∩ SCHD: ~25–30 holdings comunes (large cap defensivo + dividendo alto suelen coincidir).
+                    Eso amplifica el bias defensivo combinado.
+                  </p>
+                </>
+              ) : (
+                <>
+                  <ul className="text-xs space-y-0.5">
+                    {config.equityMix.map((m) => (
+                      <li key={m.ticker}>
+                        • <strong>{m.ticker}</strong> ({Math.round((m.weight / equityMixTotal) * 100)}% del sleeve)
+                      </li>
+                    ))}
+                  </ul>
+                  <p className="text-xs mt-2 italic text-mercantil-slate dark:text-mercantil-dark-slate">
+                    Mix custom (no es el default del entregable). Ver el selector arriba para descripción y caveats de cada ticker.
+                  </p>
+                </>
+              )}
             </div>
 
             <div>
