@@ -179,12 +179,25 @@ export const MAX_SAVED_VARIANTS = 4;
  */
 const VARIANT_COLORS = ['#003566', '#7c3aed', '#0d9488', '#db2777'] as const;
 
+/**
+ * Metadata del estudio anterior — cuando el usuario sube un PDF previo,
+ * guardamos la fecha original y la fecha del seguimiento para mostrarlas
+ * en el panel ("Generado: X · Seguimiento: Y, N días después").
+ */
+export type StudyTracking = {
+  previousDate: string; // ISO datetime del PDF subido
+  previousSessionId: string;
+  trackingDays: number;
+};
+
 type CaseStudyState = {
   config: CaseStudyConfig;
   status: CaseStudyStatus;
   result: ArenaJobOutput | null;
   error: string | null;
   savedVariants: SavedVariant[];
+  /** Setteada cuando se sube un PDF anterior. null si arrancamos desde cero. */
+  tracking: StudyTracking | null;
   // Actions
   setConfig: (patch: Partial<CaseStudyConfig>) => void;
   setThreshold: (key: keyof RolloverThresholds, value: number) => void;
@@ -195,6 +208,18 @@ type CaseStudyState = {
   saveCurrentAsVariant: (label: string) => void;
   removeVariant: (id: string) => void;
   clearVariants: () => void;
+  /**
+   * Restaura el store desde un state container extraído de un PDF "Estudio a
+   * la Medida" previo. Reemplaza config, result y savedVariants; setea
+   * tracking con la fecha del PDF anterior. Util para flujo de seguimiento.
+   */
+  restoreFromPdf: (params: {
+    config: CaseStudyConfig;
+    result: ArenaJobOutput | null;
+    savedVariants: SavedVariant[];
+    tracking: StudyTracking;
+  }) => void;
+  clearTracking: () => void;
 };
 
 export const useCaseStudyStore = create<CaseStudyState>((set) => ({
@@ -203,6 +228,7 @@ export const useCaseStudyStore = create<CaseStudyState>((set) => ({
   result: null,
   error: null,
   savedVariants: [],
+  tracking: null,
   setConfig: (patch) =>
     set((s) => ({ config: { ...s.config, ...patch } })),
   setThreshold: (key, value) =>
@@ -231,4 +257,14 @@ export const useCaseStudyStore = create<CaseStudyState>((set) => ({
   removeVariant: (id) =>
     set((s) => ({ savedVariants: s.savedVariants.filter((v) => v.id !== id) })),
   clearVariants: () => set({ savedVariants: [] }),
+  restoreFromPdf: ({ config, result, savedVariants, tracking }) =>
+    set({
+      config: { ...config },
+      result,
+      savedVariants: savedVariants.map((v) => ({ ...v })),
+      tracking,
+      status: result ? 'done' : 'idle',
+      error: null,
+    }),
+  clearTracking: () => set({ tracking: null }),
 }));

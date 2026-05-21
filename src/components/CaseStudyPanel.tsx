@@ -36,6 +36,7 @@ import { computeMonthlyInflow } from '../domain/cashflow';
 import { getYieldBounds } from '../domain/bootstrap';
 import RangeSlider from './RangeSlider';
 import EquityMixSelector from './EquityMixSelector';
+import EstudioMedidaActions from './EstudioMedidaActions';
 import { useEquityCatalogByTicker } from '../hooks/useEquityMeta';
 import { useArenaWorker } from '../hooks/useArenaWorker';
 import {
@@ -1023,6 +1024,13 @@ export default function CaseStudyPanel() {
           </div>
         )}
       </div>
+
+      {/* Estudio a la Medida — siempre visible.
+          Sin simulación corrida: el botón "Subir estudio anterior" permite
+          retomar un seguimiento desde un PDF previo, restituyendo config +
+          result automáticamente. Con simulación corrida: el botón "Generar"
+          arma el entregable del cliente. */}
+      <EstudioMedidaActions />
 
       {/* ============== RESULTS ============== */}
       {result && (
