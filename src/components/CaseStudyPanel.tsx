@@ -33,6 +33,7 @@ import { computeMonthlyInflow } from '../domain/cashflow';
 import { getYieldBounds } from '../domain/bootstrap';
 import RangeSlider from './RangeSlider';
 import EquityMixSelector from './EquityMixSelector';
+import { useEquityCatalogByTicker } from '../hooks/useEquityMeta';
 import { useArenaWorker } from '../hooks/useArenaWorker';
 import {
   configToJobInput,
@@ -1618,6 +1619,120 @@ function LoanRow({ label, value }: { label: string; value: string }) {
   );
 }
 
+/**
+ * Bloque del Sleeve Equity para mix custom — reemplaza las secciones rígidas
+ * (Diversificación 50/50, Geografía 100% USA, Riesgo histórico USMV/SCHD) por
+ * un breakdown dinámico computado a partir del meta JSON del catálogo:
+ *   - Factores presentes: agrupados por `category`, sumando pesos
+ *   - Avisos de splice histórico: tickers cuyo `proxy != null`
+ *   - Mensaje aclaratorio sobre por qué no mostramos cifras de geografía/vol
+ *     (que en el default eran estimadas a mano por el equipo del estudio)
+ */
+const CATEGORY_LABEL_ES: Record<string, string> = {
+  EqLowVol: 'Baja volatilidad',
+  EqDiv: 'Dividendo de calidad',
+  EqHiDiv: 'Dividendo alto',
+  EqQuality: 'Quality (alta ROE / baja deuda)',
+  EqMegaCap: 'Mega-cap',
+  EqGrowth: 'Growth / Tech',
+  EqSmallCap: 'Small-cap',
+  EqEqualW: 'Equal weight',
+  EqMomentum: 'Momentum',
+  EqLargeBlend: 'Large blend (S&P 500)',
+  EqGlobal: 'Global (ACWI)',
+  EqShillerRot: 'Rotación Shiller CAPE',
+};
+
+function CustomMixFactorBreakdown({
+  mix,
+  total,
+  catalog,
+}: {
+  mix: ReadonlyArray<{ ticker: string; weight: number }>;
+  total: number;
+  catalog: Record<string, import('../hooks/useEquityMeta').EquityTickerMeta> | null;
+}) {
+  // Suma de pesos normalizados por categoría
+  const byCategory: Record<string, { pct: number; tickers: string[] }> = {};
+  let unknownPct = 0;
+  for (const m of mix) {
+    const t = catalog?.[m.ticker];
+    const wNorm = total > 0 ? m.weight / total : 0;
+    if (!t) {
+      unknownPct += wNorm;
+      continue;
+    }
+    if (!byCategory[t.category]) byCategory[t.category] = { pct: 0, tickers: [] };
+    byCategory[t.category].pct += wNorm;
+    byCategory[t.category].tickers.push(m.ticker);
+  }
+  const sortedCategories = Object.entries(byCategory).sort((a, b) => b[1].pct - a[1].pct);
+
+  // Tickers con proxy (splice histórico)
+  const splicedTickers = mix
+    .map((m) => catalog?.[m.ticker])
+    .filter((t): t is import('../hooks/useEquityMeta').EquityTickerMeta => !!t && t.proxy !== null);
+
+  if (!catalog) {
+    return (
+      <div className="text-xs text-mercantil-slate dark:text-mercantil-dark-slate italic">
+        Cargando catálogo para construir el breakdown del mix custom…
+      </div>
+    );
+  }
+
+  return (
+    <>
+      <div>
+        <div className="font-semibold text-mercantil-ink dark:text-mercantil-dark-ink text-xs uppercase tracking-wider mb-1">
+          Factores presentes en el mix custom
+        </div>
+        <ul className="text-xs space-y-0.5">
+          {sortedCategories.map(([cat, info]) => (
+            <li key={cat}>
+              • <strong>{CATEGORY_LABEL_ES[cat] ?? cat}</strong>: {Math.round(info.pct * 100)}%
+              del sleeve ({info.tickers.join(', ')})
+            </li>
+          ))}
+          {unknownPct > 0 && (
+            <li className="text-mercantil-slate/70 dark:text-mercantil-dark-slate/70">
+              • Sin categoría: {Math.round(unknownPct * 100)}% (ticker no presente en el meta)
+            </li>
+          )}
+        </ul>
+        <p className="text-[11px] mt-2 italic text-mercantil-slate dark:text-mercantil-dark-slate">
+          Las cifras de diversificación interna, geografía y volatilidad histórica del default
+          (USMV+SCHD) no se replican para mixes custom — esos números los estimó manualmente
+          el equipo del estudio y no están parametrizados en el meta JSON. El simulador igual
+          corre con la serie histórica real de cada ticker (spliceada cuando aplica, ver abajo).
+        </p>
+      </div>
+
+      {splicedTickers.length > 0 && (
+        <div>
+          <div className="font-semibold text-mercantil-ink dark:text-mercantil-dark-ink text-xs uppercase tracking-wider mb-1">
+            Splice histórico en el bootstrap
+          </div>
+          <ul className="text-xs space-y-1">
+            {splicedTickers.map((t) => (
+              <li key={t.ticker}>
+                <strong>{t.ticker}</strong> ← proxy <strong>{t.proxy!.ticker}</strong>{' '}
+                ({t.proxy!.covers}). {t.proxy!.rationale}
+              </li>
+            ))}
+          </ul>
+          <p className="text-[11px] mt-1 italic text-mercantil-slate dark:text-mercantil-dark-slate">
+            El bootstrap del motor usa la serie spliceada como una sola — los retornos
+            pre-splice provienen del proxy, etiquetados con el ticker canonical. Eso da una
+            distribución estable para tickers de historia corta, a costa de asumir que el
+            proxy captura el mismo factor.
+          </p>
+        </div>
+      )}
+    </>
+  );
+}
+
 // =====================================================================
 // REGIMES DETAIL — explicación didáctica de los 3 regímenes A/B/C
 // =====================================================================
@@ -1864,6 +1979,9 @@ function SleevesDetailPanel({ config }: { config: CaseStudyConfig }) {
       (m.ticker === 'USMV' || m.ticker === 'SCHD') &&
       Math.abs(m.weight / equityMixTotal - 0.5) < 1e-9,
     );
+  // Catálogo (meta JSON o fallback inline) para mostrar info por ticker en
+  // el bloque custom — descripción, categoría, proxies y caveats salen de ahí.
+  const catalog = useEquityCatalogByTicker();
 
   return (
     <div className="bg-white dark:bg-mercantil-dark-panel rounded-lg border border-mercantil-line dark:border-mercantil-dark-line p-5">
@@ -2015,56 +2133,89 @@ function SleevesDetailPanel({ config }: { config: CaseStudyConfig }) {
                   </p>
                 </>
               ) : (
-                <>
-                  <ul className="text-xs space-y-0.5">
-                    {config.equityMix.map((m) => (
+                <ul className="text-xs space-y-1.5">
+                  {config.equityMix.map((m) => {
+                    const t = catalog?.[m.ticker];
+                    return (
                       <li key={m.ticker}>
-                        • <strong>{m.ticker}</strong> ({Math.round((m.weight / equityMixTotal) * 100)}% del sleeve)
+                        <strong>
+                          {m.ticker} ({Math.round((m.weight / equityMixTotal) * 100)}% del sleeve)
+                        </strong>
+                        {t && (
+                          <>
+                            {' '}— {t.name}. {t.description}.
+                            {t.proxy && (
+                              <span className="text-amber-700 dark:text-amber-300">
+                                {' '}Historia spliceada con <strong>{t.proxy.ticker}</strong> ({t.proxy.covers}):{' '}
+                                {t.proxy.rationale}
+                              </span>
+                            )}
+                            {t.caveats.length > 0 && (
+                              <ul className="mt-0.5 ml-2 space-y-0.5">
+                                {t.caveats.map((c, i) => (
+                                  <li
+                                    key={i}
+                                    className="text-[11px] text-amber-700 dark:text-amber-300"
+                                  >
+                                    ⚠ {c}
+                                  </li>
+                                ))}
+                              </ul>
+                            )}
+                          </>
+                        )}
                       </li>
-                    ))}
-                  </ul>
-                  <p className="text-xs mt-2 italic text-mercantil-slate dark:text-mercantil-dark-slate">
-                    Mix custom (no es el default del entregable). Ver el selector arriba para descripción y caveats de cada ticker.
-                  </p>
-                </>
+                    );
+                  })}
+                </ul>
               )}
             </div>
 
-            <div>
-              <div className="font-semibold text-mercantil-ink dark:text-mercantil-dark-ink text-xs uppercase tracking-wider mb-1">
-                Diversificación interna (mix 50/50 combinado)
-              </div>
-              <ul className="text-xs space-y-0.5">
-                <li>• <strong>Holdings únicos</strong>: ~260 acciones distintas (USMV ~190 + SCHD ~100 − overlap ~30).</li>
-                <li>• <strong>Peso máximo por acción</strong>: típicamente &lt;2% en USMV, &lt;5% en SCHD. Combinado: &lt;3% por nombre.</li>
-                <li>• <strong>Sectores top</strong> (aproximado, varía trimestralmente): Healthcare 16%, Financieros 13%, Industriales 13%, Consumo Básico 12%, Tecnología 12%, Consumo Discrecional 9%, Comunicaciones 9%, Energía 6%, Utilities 5%, Materiales 4%, Real Estate 1%. <strong>Ningún sector excede 18%</strong>.</li>
-                <li>• <strong>Capitalización</strong>: 100% large &amp; mid cap (no small caps). USMV permite mid; SCHD es predominantemente large cap.</li>
-              </ul>
-            </div>
+            {isDefaultMix ? (
+              <>
+                <div>
+                  <div className="font-semibold text-mercantil-ink dark:text-mercantil-dark-ink text-xs uppercase tracking-wider mb-1">
+                    Diversificación interna (mix 50/50 combinado)
+                  </div>
+                  <ul className="text-xs space-y-0.5">
+                    <li>• <strong>Holdings únicos</strong>: ~260 acciones distintas (USMV ~190 + SCHD ~100 − overlap ~30).</li>
+                    <li>• <strong>Peso máximo por acción</strong>: típicamente &lt;2% en USMV, &lt;5% en SCHD. Combinado: &lt;3% por nombre.</li>
+                    <li>• <strong>Sectores top</strong> (aproximado, varía trimestralmente): Healthcare 16%, Financieros 13%, Industriales 13%, Consumo Básico 12%, Tecnología 12%, Consumo Discrecional 9%, Comunicaciones 9%, Energía 6%, Utilities 5%, Materiales 4%, Real Estate 1%. <strong>Ningún sector excede 18%</strong>.</li>
+                    <li>• <strong>Capitalización</strong>: 100% large &amp; mid cap (no small caps). USMV permite mid; SCHD es predominantemente large cap.</li>
+                  </ul>
+                </div>
 
-            <div>
-              <div className="font-semibold text-mercantil-ink dark:text-mercantil-dark-ink text-xs uppercase tracking-wider mb-1">
-                Geografía
-              </div>
-              <p className="text-xs">
-                <strong>100% Estados Unidos</strong> por construcción de ambos ETFs. Sin internacional desarrollado,
-                sin emergentes. Es un sesgo deliberado: el universo USA tiene la mejor diversificación
-                sectorial doméstica y la liquidez más profunda para los flujos del endowment. Si en una revisión
-                futura la junta valora diversificación geográfica, se puede sustituir 30–50% del sleeve por ACWX
-                (ex-US developed) o ACWI (global) sin tocar el resto del modelo.
-              </p>
-            </div>
+                <div>
+                  <div className="font-semibold text-mercantil-ink dark:text-mercantil-dark-ink text-xs uppercase tracking-wider mb-1">
+                    Geografía
+                  </div>
+                  <p className="text-xs">
+                    <strong>100% Estados Unidos</strong> por construcción de ambos ETFs. Sin internacional desarrollado,
+                    sin emergentes. Es un sesgo deliberado: el universo USA tiene la mejor diversificación
+                    sectorial doméstica y la liquidez más profunda para los flujos del endowment. Si en una revisión
+                    futura la junta valora diversificación geográfica, se puede sustituir 30–50% del sleeve por ACWX
+                    (ex-US developed) o ACWI (global) sin tocar el resto del modelo.
+                  </p>
+                </div>
 
-            <div>
-              <div className="font-semibold text-mercantil-ink dark:text-mercantil-dark-ink text-xs uppercase tracking-wider mb-1">
-                Riesgo y comportamiento histórico
-              </div>
-              <ul className="text-xs space-y-0.5">
-                <li>• <strong>Volatilidad anualizada</strong>: ~12% (vs 15% S&amp;P, 18% NASDAQ). Captura ~80–85% del upside del mercado en bull market y solo ~60% del downside en bear (asymmetry deseable).</li>
-                <li>• <strong>Drawdown histórico peor</strong>: USMV en 2020 COVID: −22% (vs −34% S&amp;P). SCHD en 2022 bear: −16% (vs −19% S&amp;P).</li>
-                <li>• <strong>Correlación con bullets IG</strong>: 0.2–0.4 (positiva pero baja). En crisis de 2008–2009 sube a 0.6 temporalmente.</li>
-              </ul>
-            </div>
+                <div>
+                  <div className="font-semibold text-mercantil-ink dark:text-mercantil-dark-ink text-xs uppercase tracking-wider mb-1">
+                    Riesgo y comportamiento histórico
+                  </div>
+                  <ul className="text-xs space-y-0.5">
+                    <li>• <strong>Volatilidad anualizada</strong>: ~12% (vs 15% S&amp;P, 18% NASDAQ). Captura ~80–85% del upside del mercado en bull market y solo ~60% del downside en bear (asymmetry deseable).</li>
+                    <li>• <strong>Drawdown histórico peor</strong>: USMV en 2020 COVID: −22% (vs −34% S&amp;P). SCHD en 2022 bear: −16% (vs −19% S&amp;P).</li>
+                    <li>• <strong>Correlación con bullets IG</strong>: 0.2–0.4 (positiva pero baja). En crisis de 2008–2009 sube a 0.6 temporalmente.</li>
+                  </ul>
+                </div>
+              </>
+            ) : (
+              <CustomMixFactorBreakdown
+                mix={config.equityMix}
+                total={equityMixTotal}
+                catalog={catalog}
+              />
+            )}
 
             <div>
               <div className="font-semibold text-mercantil-ink dark:text-mercantil-dark-ink text-xs uppercase tracking-wider mb-1">
