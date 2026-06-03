@@ -38,6 +38,7 @@ import RangeSlider from './RangeSlider';
 import EquityMixSelector from './EquityMixSelector';
 import EstudioMedidaActions from './EstudioMedidaActions';
 import { useEquityCatalogByTicker } from '../hooks/useEquityMeta';
+import { useTTMPanel } from '../hooks/useTTMPanel';
 import { useArenaWorker } from '../hooks/useArenaWorker';
 import {
   configToJobInput,
@@ -1106,6 +1107,14 @@ export default function CaseStudyPanel() {
                   ({!config.rolloverEnabled ? 'buy-and-hold' : 'A/B/C en vencimientos'})
                 </span>
               </label>
+              {/* Motor de retornos de bullets — opt-in del bucket bootstrap.
+                  Default 'parametric' preserva paridad Python del primer
+                  entregable. El bucket bootstrap usa el panel TTM empírico
+                  publicado por estudios-a-la-medida. */}
+              <BulletEngineToggle
+                currentValue={config.bulletReturnsEngine}
+                onChange={(v) => setConfig({ bulletReturnsEngine: v })}
+              />
             </div>
           )}
         </div>
@@ -1778,6 +1787,63 @@ function LoanRow({ label, value }: { label: string; value: string }) {
     <div className="flex items-center justify-between">
       <span className="text-mercantil-slate dark:text-mercantil-dark-slate">{label}</span>
       <span className="font-semibold text-mercantil-ink dark:text-mercantil-dark-ink">{value}</span>
+    </div>
+  );
+}
+
+/**
+ * Toggle del motor de retornos de bullets. Consume el panel TTM via useTTMPanel
+ * y muestra el estado de carga + permite opt-in al bucket bootstrap si el
+ * panel está disponible.
+ *
+ * Si el panel no se carga (offline o Pages caída), el toggle queda
+ * disabled y el motor automáticamente usa 'parametric'.
+ */
+function BulletEngineToggle({
+  currentValue,
+  onChange,
+}: {
+  currentValue: 'parametric' | 'bucket-bootstrap';
+  onChange: (v: 'parametric' | 'bucket-bootstrap') => void;
+}) {
+  const panelState = useTTMPanel();
+  const panelOk = panelState.kind === 'ok';
+  const panelLoading = panelState.kind === 'loading';
+
+  return (
+    <div className="flex flex-col gap-1 text-xs mt-1">
+      <label className="flex items-center gap-2 cursor-pointer">
+        <input
+          type="checkbox"
+          checked={currentValue === 'bucket-bootstrap'}
+          disabled={!panelOk}
+          onChange={(e) => onChange(e.target.checked ? 'bucket-bootstrap' : 'parametric')}
+          className="accent-mercantil-orange h-3.5 w-3.5 disabled:opacity-50"
+        />
+        <span className={!panelOk ? 'text-mercantil-slate/60 dark:text-mercantil-dark-slate/60' : ''}>
+          Motor bullets: bucket bootstrap empírico
+        </span>
+        <span className="text-mercantil-slate/60 dark:text-mercantil-dark-slate/60">
+          {currentValue === 'bucket-bootstrap'
+            ? '(panel TTM empírico)'
+            : '(paramétrico — curve + spread + duration decay)'}
+        </span>
+      </label>
+      {panelLoading && (
+        <span className="text-mercantil-slate/60 dark:text-mercantil-dark-slate/60 italic pl-6">
+          Cargando panel TTM…
+        </span>
+      )}
+      {panelState.kind === 'unavailable' && (
+        <span className="text-amber-700 dark:text-amber-400 italic pl-6">
+          ⚠ Panel TTM no disponible ({panelState.reason}) — toggle deshabilitado, motor revierte a paramétrico
+        </span>
+      )}
+      {panelState.kind === 'ok' && (
+        <span className="text-mercantil-slate/60 dark:text-mercantil-dark-slate/60 italic pl-6">
+          Panel TTM cargado · IG {panelState.panel.coverage.ig.total_obs} obs · HY {panelState.panel.coverage.hy.total_obs} obs
+        </span>
+      )}
     </div>
   );
 }

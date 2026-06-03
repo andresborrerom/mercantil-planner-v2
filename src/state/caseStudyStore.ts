@@ -110,6 +110,20 @@ export type CaseStudyConfig = {
    * principal de Mercantil SFI).
    */
   clientResidency: 'offshore' | 'us-resident';
+  /**
+   * Motor de cálculo de retornos de bullets.
+   *  - 'parametric' (default): modelo paramétrico actual (curve + spread +
+   *    duration decay). Preserva paridad Python.
+   *  - 'bucket-bootstrap': bucket bootstrap del panel TTM histórico
+   *    (estudios-a-la-medida/data/bullets_ttm_panel.json publicado en
+   *    Pages). Reproduce mejor stylized facts empíricos (COVID 2020,
+   *    rate shock 2022) pero requiere fetch del panel al cargar el
+   *    planner. Si el panel no se carga, el motor revierte a 'parametric'.
+   *
+   * Default 'parametric' para preservar el comportamiento del primer
+   * entregable TBSC. El usuario opta in via toggle en sección Avanzado.
+   */
+  bulletReturnsEngine: 'parametric' | 'bucket-bootstrap';
 };
 
 export const DEFAULT_CASE_CONFIG: CaseStudyConfig = {
@@ -142,6 +156,7 @@ export const DEFAULT_CASE_CONFIG: CaseStudyConfig = {
   allInFeeBps: 0,
   bulletIssuer: 'iBonds',
   clientResidency: 'offshore',
+  bulletReturnsEngine: 'parametric', // default preserva paridad Python
 };
 
 /** Convierte CaseStudyConfig → ArenaJobInput aplicando defaults fijos. */
