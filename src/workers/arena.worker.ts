@@ -180,13 +180,13 @@ export type ArenaJobOutput = {
   /** AUM gross per sim per mes, sim-major [nSims × (H+1)]. */
   aumPath: Float64Array;
   /**
-   * AUM "Hold-to-Maturity" — versión paralela donde los bullets se valoran
-   * con haircut por defaults acumulados (bootstrap histórico Moody's),
-   * ignorando volatilidad mark-to-market de curva/spread. Equity y cash
-   * se valoran a mercado (no tienen "vencimiento"). Útil para mostrar al
-   * cliente qué patrimonio recibiría si se queda hasta vencimiento natural
-   * de cada bullet. La banda HTM es típicamente mucho más angosta que la
-   * mark-to-market — solo refleja riesgo de defaults + vol de equity/cash.
+   * AUM "Hold-to-Maturity" — versión paralela donde los bullets reciben un
+   * haircut por defaults acumulados (bootstrap histórico Moody's) en vez de
+   * vender a mercado. Equity y cash se valoran siempre a mercado (no tienen
+   * "vencimiento"). Útil para mostrar al cliente qué patrimonio recibiría si
+   * se queda hasta vencimiento natural de cada bullet, **incluida la
+   * dispersión de tasas de rollover entre paths** (path A renueva al 6%,
+   * path B al 3% → trayectorias distintas a 20y).
    */
   aumPathHTM: Float64Array;
   /** Net wealth (AUM − loan_balance). */
@@ -688,7 +688,9 @@ function makePrng(seed: number): () => number {
  *   y movimientos curve <200bp anuales, el error es <2% en finalAumHTM.
  *
  * Diferencia esperada vs aumPath (a mercado):
- *   - HTM banda P5-P95 es típicamente 30-50% más angosta que mtm
+ *   - HTM banda P5-P95 es modestamente más angosta que mtm (~85% del ancho)
+ *     porque bullets per-path conserva la rollover dispersion + algo de mtm,
+ *     pero el haircut por defaults es chico para IG.
  *   - HTM mean ≈ mtm mean (sin sesgo sistemático)
  *   - HTM no tiene el spike-down de stress episodes (defaults son pequeños
  *     en IG; en HY el spike sí aparece pero atenuado vs mtm)
@@ -705,28 +707,26 @@ function computeHoldToMaturityPath(
   const nObs = HISTORICAL_DEFAULT_DATA.length;
   const blockSize = DEFAULT_BOOTSTRAP_BLOCK_YEARS;
 
-  // PRE-COMPUTAR mediana cross-paths de bullets para cada mes.
-  // La valuación HTM asume que el cliente no vende los bullets — la
-  // volatilidad mark-to-market de curva + spread cross-path NO debe
-  // afectar al cliente que se queda hasta vencimiento. Usar la mediana
-  // como proxy del "valor esperado del bullets sleeve a t" elimina esa
-  // vol y deja que la banda HTM solo refleje:
-  //   - vol del equity sleeve (cross-path, real)
-  //   - vol del cash sleeve (cross-path, mínima)
-  //   - vol del haircut por defaults (cross-path, chica para IG ~0.5%/yr)
+  // Usamos bullets[s][t] PER-PATH (no la mediana cross-paths).
   //
-  // Esto produce una banda HTM materialmente más angosta que la MTM,
-  // visualizando el concepto del cliente "si me quedo, esto recibo".
-  const bulletsMedian = new Float64Array(Hp1);
-  const col = new Float64Array(nSims);
-  for (let t = 0; t < Hp1; t++) {
-    for (let s = 0; s < nSims; s++) {
-      col[s] = out.sleevePath[(s * Hp1 + t) * 3 + 0];
-    }
-    const sorted = Float64Array.from(col);
-    sorted.sort();
-    bulletsMedian[t] = sorted[Math.floor(0.5 * (nSims - 1))];
-  }
+  // Decisión semántica (2026-06-03): la valuación HTM debe reflejar la
+  // dispersión legítima de las TASAS DE ROLLOVER entre paths — cuando el
+  // bullet ID26 vence, el path A renueva al 6% y el path B al 3%; a lo
+  // largo de 20y eso genera trayectorias HTM materialmente distintas. Si
+  // colapsáramos bullets a la mediana, esa dispersión desaparece (cosa
+  // que se hizo en una iteración previa intentando "achicar la banda HTM
+  // vs MtM"). El cliente quiere ver el rollover dispersion, no esconderlo.
+  //
+  // Trade-off conocido: bullets[s][t] incluye también la vol mark-to-market
+  // de curva y spread (~3-5% por año de mtm noise sobre los bullets). Esa
+  // vol técnicamente NO afecta al cliente HTM. Pero a 20y, el rollover
+  // dispersion domina (>>> mtm noise por reversión a par) — la diferencia
+  // entre HTM y MtM se mantiene visible (~85% del ancho de MtM vs ~70%
+  // con el modelo de mediana), y la mediana HTM y MtM están alineadas.
+  //
+  // Sanity check con maxBulletYears=1: el ladder se comporta como rolling
+  // 1y DPF, y el HTM matchea DPF1Y baseline path-a-path (ambos siguen el
+  // yield path y renuevan al rate observado en cada vencimiento).
 
   for (let s = 0; s < nSims; s++) {
     // PRNG per-path: seed derivado para reproducibilidad por path
@@ -764,15 +764,16 @@ function computeHoldToMaturityPath(
       void yearOfT;
     }
 
-    // Aplicar a cada mes: HTM = bullets_mediana × (1 - hc) + equity + cash
-    // El componente bullets NO tiene vol cross-path (usa la mediana). Equity
-    // y cash sí tienen vol per-path (son a mercado). Vol del haircut tiene
-    // contribución chica para IG (~0.5%/yr).
+    // Aplicar a cada mes: HTM[s][t] = bullets[s][t] × (1 - hc) + equity[s][t] + cash[s][t]
+    // Per-path en los 3 sleeves → la dispersión cross-path refleja
+    // diferencias en yield paths (rollover dispersion en bullets, equity
+    // moves, cash moves) y en haircut (block bootstrap de Moody's).
     for (let t = 0; t < Hp1; t++) {
       const base = (s * Hp1 + t) * 3;
+      const bullets = out.sleevePath[base + 0];
       const equity = out.sleevePath[base + 1];
       const cash = out.sleevePath[base + 2];
-      aumHTM[s * Hp1 + t] = bulletsMedian[t] * (1 - haircut[t]) + equity + cash;
+      aumHTM[s * Hp1 + t] = bullets * (1 - haircut[t]) + equity + cash;
     }
   }
 

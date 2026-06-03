@@ -872,10 +872,10 @@ export default function CaseStudyPanel() {
                 value={config.maxBulletYears}
                 onChange={(v) => setConfig({ maxBulletYears: v })}
                 step={1}
-                min={2}
+                min={1}
                 max={11}
                 suffix="años"
-                hint="solo vintages ≤ N años en el ladder"
+                hint="solo vintages ≤ N años en el ladder. Con 1y rolea ~anualmente"
               />
             )}
           </div>
