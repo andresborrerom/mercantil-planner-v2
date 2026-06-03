@@ -158,14 +158,52 @@ export function ResultsSection({ state }: Props) {
         <StatBox label="AUM final mediano" value={fmtMoney(result.stats.finalAumMed)} />
       </View>
 
-      <Text style={styles.blockTitle}>Proyección del AUM — percentiles ($ millones)</Text>
+      <Text style={styles.blockTitle}>Proyección del AUM — valuación a mercado ($ millones)</Text>
       <Text style={styles.blockBody}>
-        Bandas P5–P95 (90% de los caminos posibles) y P25–P75 (50%) sobre {result.meta.nSims.toLocaleString()} simulaciones del modelo.
-        Línea sólida = mediana. Línea gris punteada = capital inicial ({fmtMoney(config.initialAumUsd)}).
+        Valoración estándar mark-to-market: bullets, equity y cash valorados al precio vigente cada mes.
+        Bandas P5–P95 (90% de los caminos posibles) y P25–P75 (50%) sobre {result.meta.nSims.toLocaleString()} simulaciones.
+        Línea sólida = mediana. Línea gris punteada = capital inicial ({fmtMoney(config.initialAumUsd)}). Esta es la
+        valuación que el cliente vería en su extracto trimestral si tuviera que liquidar a precio de mercado.
       </Text>
       <View style={styles.chartWrap}>
         <EstudioFanChart
           aumPath={result.aumPath}
+          nSims={result.meta.nSims}
+          horizonMonths={result.meta.horizonMonths}
+          initialAum={result.stats.initialAum}
+        />
+        <View style={styles.legendRow}>
+          <View style={styles.legendItem}>
+            <View style={[styles.legendSwatch, { backgroundColor: colors.orange, opacity: 0.12 }]} />
+            <Text style={styles.legendText}>P5–P95</Text>
+          </View>
+          <View style={styles.legendItem}>
+            <View style={[styles.legendSwatch, { backgroundColor: colors.orange, opacity: 0.28 }]} />
+            <Text style={styles.legendText}>P25–P75</Text>
+          </View>
+          <View style={styles.legendItem}>
+            <View style={[styles.legendSwatch, { backgroundColor: colors.orangeDeep }]} />
+            <Text style={styles.legendText}>Mediana</Text>
+          </View>
+        </View>
+      </View>
+
+      {/* Fan chart paralelo "a vencimiento" — mismo Y range (visualmente
+          comparable) pero con bullets valorados al haircut de defaults.
+          La banda HTM es típicamente mucho más angosta. */}
+      <Text style={[styles.blockTitle, { marginTop: spacing.md }]}>
+        Proyección del AUM — valuación a vencimiento ($ millones)
+      </Text>
+      <Text style={styles.blockBody}>
+        Valoración hold-to-maturity: bullets valorados con haircut por defaults (bootstrap Moody's 1983–2024,
+        block 3y). Curva, spread y sentiment de mercado <Text style={{ fontStyle: 'italic' }}>no afectan</Text>{' '}
+        esta valuación de bullets vivos. Es el patrimonio que el cliente recibe si se queda al ladder hasta el
+        vencimiento natural de cada bullet. Equity y cash siguen a mercado (no tienen vencimiento). La banda es
+        materialmente más angosta porque sólo refleja riesgo de defaults + volatilidad de equity/cash.
+      </Text>
+      <View style={styles.chartWrap}>
+        <EstudioFanChart
+          aumPath={result.aumPathHTM}
           nSims={result.meta.nSims}
           horizonMonths={result.meta.horizonMonths}
           initialAum={result.stats.initialAum}

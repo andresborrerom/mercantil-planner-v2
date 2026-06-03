@@ -123,6 +123,15 @@ export const DISCLAIMERS: ReadonlyArray<Disclaimer> = [
 
   // ---- RECOMENDADOS ----
   {
+    id: 'D2',
+    category: 'simulacion',
+    tier: 'recommended',
+    title: 'Modelo "Hold-to-Maturity" (valuación a vencimiento)',
+    body:
+      'La valuación a vencimiento mostrada en el documento asume que el cliente se queda hasta el vencimiento natural de cada bullet del ladder. Bajo este escenario, los bullets vivos no sufren volatilidad mark-to-market de curva ni spread — solo se ven afectados por defaults acumulados en los bonos subyacentes del fondo. El haircut por defaults se simula con bootstrap histórico (Moody\'s Annual Default Study, 1983–2024) usando block bootstrap de 3 años para preservar la autocorrelación de ciclos crediticios (e.g., GFC 2008–2010). Equity y cash se valoran siempre a mercado. Limitaciones de la aproximación: (i) el modelo usa el valor mark-to-market actual de los bullets como proxy del nominal pendiente — para fees acotados y movimientos de curva moderados el error es <2% en el AUM final; (ii) el modelo asume default rate del rating average del fondo (no per-emisor), válido para fondos diversificados con 200+ emisores como iBonds y BulletShares.',
+    source: 'Moody\'s Annual Default Study (1983–2024, público); literatura estándar de credit modeling (CreditMetrics, CreditRisk+).',
+  },
+  {
     id: 'I',
     category: 'simulacion',
     tier: 'recommended',
