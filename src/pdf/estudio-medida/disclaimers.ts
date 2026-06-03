@@ -85,6 +85,15 @@ export const DISCLAIMERS: ReadonlyArray<Disclaimer> = [
     source: 'US Securities Act 1933 — Regulation S; folletos iShares iBonds UCITS.',
   },
   {
+    id: 'F2',
+    category: 'productos',
+    tier: 'recommended',
+    title: 'BulletShares UCITS USD Corp — AUM bajo y cobertura parcial del ladder',
+    body:
+      'Los ETFs Invesco BulletShares USD Corporate UCITS (BS6A.L, BS7A.L, BS8A.L, BS9A.L, BS0A.L) listados en la London Stock Exchange con domicilio en Irlanda y disponibles para clientes offshore presentan AUM individual entre aproximadamente US$15M y US$37M (según corte 31-marzo-2026), significativamente inferior al promedio de iShares iBonds UCITS equivalentes. Esto puede implicar: (i) bid-ask spreads más amplios en el mercado secundario en condiciones normales y, especialmente, en condiciones de estrés; (ii) número limitado de Authorized Participants (APs) activos en creation/redemption, con eventual desconexión entre precio de mercado y NAV; (iii) riesgo de soft-closure o liquidación temprana si la AUM no crece a hitos contractuales establecidos por Invesco. Adicionalmente, la familia UCITS solo cubre vintages 2026–2030 al momento de este estudio — para horizontes que excedan 2030, los bullets posteriores se modelan paramétricamente como sintéticos extendidos.',
+    source: 'Invesco — Global ETF Product List, March 2026; práctica de mercado para ETFs UCITS de AUM bajo.',
+  },
+  {
     id: 'F',
     category: 'productos',
     tier: 'mandatory',

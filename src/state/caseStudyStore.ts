@@ -79,6 +79,36 @@ export type CaseStudyConfig = {
    * Default 0 — comportamiento previo del TBSC se preserva.
    */
   allInFeeBps: number;
+  /**
+   * Issuer del ladder de bonos. Decisión OPERATIVA (qué ETFs concretos
+   * compra Mercantil para el cliente), no de exposición económica — el
+   * motor matemático modela paramétricamente el ladder (curve + spread +
+   * duration decay) idéntico para los tres issuers, porque empíricamente
+   * iBonds UCITS y BulletShares UCITS son indistinguibles en correlación
+   * y diff de yield (<5bp; ver UNIVERSO.md §1.3 de estudios-a-la-medida).
+   *
+   * La diferencia entre opciones se refleja en:
+   *  - Issuer risk: 100% BlackRock vs 100% Invesco vs split 50-50
+   *  - AUM de cada ETF (relevante para look-through y disclaimers)
+   *  - Vintages disponibles: iBonds UCITS cubre 2026-2034; BulletShares
+   *    UCITS solo 2026-2030 → 'bulletshares-ucits' solo aplica a horizon
+   *    cortos; 'split-50-50' se degrada a iBonds-only para vintages
+   *    posteriores a 2030.
+   *
+   * Restricciones por residencia fiscal:
+   *  - clientResidency='offshore' (default): solo UCITS disponibles.
+   *  - clientResidency='us-resident': UCITS + US BulletShares (no
+   *    implementado en este PR; queda para PR posterior).
+   */
+  bulletIssuer: 'iBonds' | 'bulletshares-ucits' | 'split-50-50';
+  /**
+   * Residencia fiscal del cliente. Determina qué familias de ETFs son
+   * elegibles. 'offshore' = non-US Person — UCITS solo (Reg S + estate
+   * tax US-situs + withholding); 'us-resident' = US Person/resident —
+   * US-registered + UCITS disponibles. Default 'offshore' (el mercado
+   * principal de Mercantil SFI).
+   */
+  clientResidency: 'offshore' | 'us-resident';
 };
 
 export const DEFAULT_CASE_CONFIG: CaseStudyConfig = {
@@ -109,6 +139,8 @@ export const DEFAULT_CASE_CONFIG: CaseStudyConfig = {
     { ticker: 'SCHD', weight: 0.5 },
   ],
   allInFeeBps: 0,
+  bulletIssuer: 'iBonds',
+  clientResidency: 'offshore',
 };
 
 /** Convierte CaseStudyConfig → ArenaJobInput aplicando defaults fijos. */

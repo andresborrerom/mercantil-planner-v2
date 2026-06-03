@@ -130,6 +130,35 @@ type Props = {
   state: EstudioMedidaStateContainer;
 };
 
+function issuerLabel(i: string): string {
+  if (i === 'iBonds') return 'iBonds UCITS (BlackRock)';
+  if (i === 'bulletshares-ucits') return 'BulletShares UCITS (Invesco)';
+  if (i === 'split-50-50') return 'Split 50/50 iBonds + BulletShares (donde aplique)';
+  return i;
+}
+
+function ladderDescription(issuer: string): string {
+  if (issuer === 'bulletshares-ucits') {
+    return (
+      'Escalera basada en Invesco BulletShares USD Corporate UCITS (vintages 2026–2030: ' +
+      'BS6A.L, BS7A.L, BS8A.L, BS9A.L, BS0A.L). Para vintages 2031+ no hay BulletShares UCITS ' +
+      'disponible hoy; esos años se modelan como bullets sintéticos extendidos (continuación ' +
+      'paramétrica del ladder).'
+    );
+  }
+  if (issuer === 'split-50-50') {
+    return (
+      'Escalera con split issuer 50/50 para vintages 2026–2030 (mitad iShares iBonds UCITS USD Corp, ' +
+      'mitad Invesco BulletShares USD Corp UCITS — BS6A/7A/8A/9A/0A.L). Vintages 2031–2034 son 100% ' +
+      'iBonds (BulletShares no cubre esos años). Vintages 2035+ son sintéticos extendidos.'
+    );
+  }
+  return (
+    'Escalera de 11 bullets corporativos investment-grade USD: 9 vintages reales (BlackRock iBonds UCITS USD Corp ' +
+    'Term ETFs 2026–2034) + 2 sintéticos (2035S, 2036S).'
+  );
+}
+
 export function StrategySection({ state }: Props) {
   const { config } = state;
   const equityMixTotal = config.equityMix.reduce((s, m) => s + m.weight, 0);
@@ -142,12 +171,14 @@ export function StrategySection({ state }: Props) {
       {/* Renta fija */}
       <View style={styles.sleeveCard} wrap={false}>
         <Text style={styles.sleeveTitle}>Renta fija — escalera de bonos</Text>
-        <Text style={styles.sleeveMeta}>{fmtPct(config.bulletTotalPct, 0)} del AUM · Investment-grade USD</Text>
+        <Text style={styles.sleeveMeta}>
+          {fmtPct(config.bulletTotalPct, 0)} del AUM · Investment-grade USD · {issuerLabel(config.bulletIssuer)}
+        </Text>
         <Text style={styles.sleeveBody}>
-          Escalera de 11 bullets corporativos investment-grade USD: 9 vintages reales (BlackRock iBonds UCITS USD Corp
-          Term ETFs 2026–2034) + 2 sintéticos (2035S, 2036S). Inicialización equal-weight (~9.1% por bullet del sleeve).
-          Duración promedio del ladder al inicio: ~5–5.5 años. Carry inicial = YTM derivado de la curva Treasury vigente
-          + spread IG de aproximadamente {(config.initialSpread * 10000).toFixed(0)} bp.{'\n\n'}
+          {ladderDescription(config.bulletIssuer)}
+          {' '}Inicialización equal-weight (~9.1% por bullet del sleeve). Duración promedio del ladder al inicio:
+          {' '}~5–5.5 años. Carry inicial = YTM derivado de la curva Treasury vigente + spread IG de aproximadamente
+          {' '}{(config.initialSpread * 10000).toFixed(0)} bp.{'\n\n'}
           {config.rolloverEnabled
             ? 'Rollover táctico habilitado: cada bullet, al vencer, libera principal que se reasigna según el régimen de tasas vigente (ver tabla de regímenes A/B/C abajo).'
             : 'Buy-and-hold: el principal del bullet vencido queda en cash hasta el siguiente rebalanceo reglado.'}
