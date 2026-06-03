@@ -35,12 +35,21 @@ import {
   runArena,
   type ArenaConfig,
   type ArenaEvent,
+  type ArenaMarket,
   type ArenaStats,
 } from '../domain/arena';
 import {
   DEFAULT_ROLLOVER_THRESHOLDS,
   type RolloverThresholds,
 } from '../domain/rollover';
+import {
+  initBootstrapState,
+  sampleReturnFromBucket,
+  type TTMPanel,
+  type BucketSleeveType,
+} from '../domain/bulletBucketBootstrap';
+import { createExtensionBullets } from '../domain/arena';
+import type { BulletDef } from '../domain/bullets';
 import type { Ticker } from '../data/market.generated';
 import type { ExpandedPortfolio } from '../domain/types';
 
@@ -146,6 +155,25 @@ export type ArenaJobInput = {
    * el PDF entregable, si feeBps > 0, los stats reportados son NETOS.
    */
   allInFeeBps?: number;
+
+  // ---- Bullet returns engine (PR #8b) ----
+  /**
+   * Motor de cálculo de retornos de bullets. 'parametric' (default) usa
+   * el modelo curve + spread + duration decay del motor original — paridad
+   * Python preservada. 'bucket-bootstrap' usa el panel TTM empírico
+   * publicado por estudios-a-la-medida.
+   *
+   * Cuando es 'bucket-bootstrap', se requiere `ttmPanel` en el payload.
+   * Si no llega, el worker revierte automáticamente a 'parametric'.
+   */
+  bulletReturnsEngine?: 'parametric' | 'bucket-bootstrap';
+  /**
+   * Panel TTM cargado desde estudios-a-la-medida/data/bullets_ttm_panel.json
+   * (via useTTMPanel hook en el cliente). Solo se usa cuando
+   * bulletReturnsEngine === 'bucket-bootstrap'. Si null/omitido con engine
+   * = 'bucket-bootstrap', el worker revierte a 'parametric'.
+   */
+  ttmPanel?: TTMPanel | null;
 };
 
 export type ArenaJobOutput = {
@@ -313,6 +341,34 @@ function executeJob(id: string, payload: ArenaJobInput): {
     etfReturns: boot.etfReturns!,
   });
 
+  // ----- Step 2b: bucket bootstrap override (opcional, PR #8b) -----
+  // Si el usuario activó bucket-bootstrap y el panel está disponible,
+  // reemplazar market.bulletReturns con samples del bucket TTM empírico.
+  // Esto deja todo el resto del market (yieldPaths, equityReturns,
+  // cashReturns) intacto — el override es per-bullet, per-path, per-mes.
+  //
+  // Si engine='parametric' o panel no disponible, no se hace nada (motor
+  // paramétrico actual con paridad Python preservada).
+  const useBucketBootstrap =
+    payload.bulletReturnsEngine === 'bucket-bootstrap' && payload.ttmPanel != null;
+  const finalMarket = useBucketBootstrap
+    ? overrideBulletReturnsWithBucketBootstrap(
+        market,
+        [
+          ...realBullets,
+          ...createExtensionBullets(
+            realBullets,
+            nExtensions,
+            extensionSpacingY,
+          ),
+        ],
+        payload.ttmPanel!,
+        payload.nSims,
+        payload.horizonMonths,
+        payload.seed,
+      )
+    : market;
+
   // ----- Step 3: runArena -----
   const thresholds: RolloverThresholds = {
     ...DEFAULT_ROLLOVER_THRESHOLDS,
@@ -360,7 +416,7 @@ function executeJob(id: string, payload: ArenaJobInput): {
     // pueden setear false vía ArenaConfig si necesitan la rama vieja.
     enforceMonthlyEquityCap: true,
   };
-  const arenaOut = runArena(config, market);
+  const arenaOut = runArena(config, finalMarket);
   const tArena1 =
     typeof performance !== 'undefined' && typeof performance.now === 'function'
       ? performance.now()
@@ -721,6 +777,76 @@ function computeHoldToMaturityPath(
   }
 
   return aumHTM;
+}
+
+// =====================================================================
+// BUCKET BOOTSTRAP OVERRIDE (PR #8b)
+// =====================================================================
+
+/**
+ * Override de market.bulletReturns con samples del bucket TTM empírico.
+ *
+ * Para cada bullet (real o extensión) y para cada path simulado, samplea
+ * mes a mes del bucket TTM correspondiente al TTM efectivo en ese mes.
+ *
+ * Joint sampling per path (versión 1, simplificada):
+ *   - Cada bullet en (path p, mes m) usa un PRNG independiente seedeado
+ *     desde (seed_global, p, b).
+ *   - Esto NO preserva joint sampling con equity/cash, pero es coherente
+ *     intra-bullet a lo largo del tiempo (stationary bootstrap).
+ *   - Versión futura puede preservar joint con un PRNG por path
+ *     compartido entre bullets.
+ *
+ * Si el TTM del bullet ≤ 0 (vencido), se mantiene el retorno paramétrico
+ * original (es 0 efectivo porque el motor ya considera bullets vencidos).
+ *
+ * Sleeve type: hardcoded 'ig' por ahora — todos los bullets del lineup
+ * son IG Corp. Cuando se agregue HY (sleeve separado), el sleeve type
+ * pasará a ser metadata del BulletDef.
+ */
+function overrideBulletReturnsWithBucketBootstrap(
+  market: ArenaMarket,
+  allBullets: BulletDef[],
+  panel: TTMPanel,
+  nSims: number,
+  horizonMonths: number,
+  seed: number,
+): ArenaMarket {
+  const sleeveType: BucketSleeveType = 'ig';
+  const newBulletReturns: Float32Array[] = [];
+
+  for (let b = 0; b < allBullets.length; b++) {
+    const bullet = allBullets[b];
+    const series = new Float32Array(nSims * horizonMonths);
+    // El paramétrico original — fallback cuando TTM ≤ 0
+    const originalSeries = market.bulletReturns[b];
+
+    for (let p = 0; p < nSims; p++) {
+      // PRNG por path × bullet — reproducibilidad
+      const prng = makePrng(seed + p * 7919 + b * 13);
+      const state = initBootstrapState();
+
+      for (let m = 0; m < horizonMonths; m++) {
+        const idx = p * horizonMonths + m;
+        // TTM al inicio del mes m (en meses)
+        const ttmYears = bullet.maturityY - m / 12;
+        if (ttmYears <= 0) {
+          // Bullet vencido — usar el paramétrico (motor ya lo trata como 0)
+          series[idx] = originalSeries[idx];
+          continue;
+        }
+        const ttmMonths = Math.max(1, Math.round(ttmYears * 12));
+        const ret = sampleReturnFromBucket(panel, sleeveType, ttmMonths, state, prng);
+        series[idx] = ret;
+      }
+    }
+    newBulletReturns.push(series);
+  }
+
+  return {
+    ...market,
+    bulletReturns: newBulletReturns,
+  };
 }
 
 self.onmessage = (event: MessageEvent<IncomingMessage>) => {

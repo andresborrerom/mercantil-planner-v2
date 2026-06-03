@@ -18,6 +18,7 @@
 import { create } from 'zustand';
 import { DEFAULT_ROLLOVER_THRESHOLDS, type RolloverThresholds } from '../domain/rollover';
 import { monthsBetween } from '../domain/bullets';
+import type { TTMPanel } from '../domain/bulletBucketBootstrap';
 import type { ArenaJobInput, ArenaJobOutput } from '../workers/arena.worker';
 
 export type CaseStudyStatus = 'idle' | 'running' | 'done' | 'error';
@@ -160,7 +161,10 @@ export const DEFAULT_CASE_CONFIG: CaseStudyConfig = {
 };
 
 /** Convierte CaseStudyConfig → ArenaJobInput aplicando defaults fijos. */
-export function configToJobInput(config: CaseStudyConfig): ArenaJobInput {
+export function configToJobInput(
+  config: CaseStudyConfig,
+  ttmPanel?: TTMPanel | null,
+): ArenaJobInput {
   // Normaliza pesos del mix al envío. El UI mantiene pesos arbitrarios para
   // permitir edición fluida (sliders independientes); el motor requiere suma=1.
   const totalW = config.equityMix.reduce((s, m) => s + m.weight, 0);
@@ -234,6 +238,12 @@ export function configToJobInput(config: CaseStudyConfig): ArenaJobInput {
     dpfRateOverride: config.dpfRateOverride,
     maxBulletYears: config.maxBulletYearsEnabled ? config.maxBulletYears : null,
     allInFeeBps: config.allInFeeBps,
+    bulletReturnsEngine: config.bulletReturnsEngine,
+    // El panel TTM se pasa al worker SOLO cuando el motor es bucket-bootstrap.
+    // En modo paramétrico es innecesario (y postMessage es más rápido sin
+    // transferir el panel ~230KB).
+    ttmPanel:
+      config.bulletReturnsEngine === 'bucket-bootstrap' && ttmPanel ? ttmPanel : null,
     // Nota: enforceMonthlyEquityCap se hardcodea a true dentro del worker,
     // no se pasa por payload. Esto evita que algún cambio futuro al store
     // termine accidentalmente desactivando el cap mensual.
