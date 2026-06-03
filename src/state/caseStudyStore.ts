@@ -193,16 +193,36 @@ export function configToJobInput(
   // realidad operativa (el cliente puede comprar nuevos vintages a futuro).
   const today = new Date(2026, 4, 15); // 2026-05-15 — anclado al lineup TBSC
   const dec15 = (y: number) => new Date(y, 11, 15);
-  const ucitsRealBullets = [];
+  let ucitsRealBullets: Array<{
+    name: string;
+    maturityY: number;
+    durInitY: number;
+    isSynthetic: boolean;
+  }> = [];
   for (let v = 2026; v <= 2034; v++) {
     const mY = monthsBetween(today, dec15(v)) / 12;
-    if (mY <= 0) continue; // skip si ya venció antes de hoy
+    if (mY <= 0) continue;
     ucitsRealBullets.push({
       name: `ID${(v % 100).toString().padStart(2, '0')}`,
       maturityY: mY,
       durInitY: mY * 0.93,
       isSynthetic: false,
     });
+  }
+  // Cap de duración: filtra el lineup inicial a vintages con maturity ≤ maxBulletYears.
+  // Con max=1y solo ID26 (~0.58y al 2026-05-15) sobrevive — el rollover engine cubre
+  // el resto generando sintéticos a 1y de spacing arriba del más largo. Es válido
+  // tener 1 sola vintage real en el lineup inicial (no requiere ≥2 que pide
+  // defaultBulletLineup; ese check es del helper Python-parity, no del motor).
+  if (config.maxBulletYearsEnabled) {
+    const filtered = ucitsRealBullets.filter((b) => b.maturityY <= config.maxBulletYears);
+    if (filtered.length === 0) {
+      throw new Error(
+        `maxBulletYears=${config.maxBulletYears} deja 0 vintages reales. ` +
+          `El lineup UCITS más corto es ID26 (~0.58y). Subí el cap a ≥1.`,
+      );
+    }
+    ucitsRealBullets = filtered;
   }
   return {
     realBullets: ucitsRealBullets,
