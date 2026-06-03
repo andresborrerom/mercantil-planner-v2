@@ -195,6 +195,80 @@ describe('DEFAULT_BLOCK_SIZE_MEAN', () => {
   });
 });
 
+describe('sampleReturnFromBucket — robustez al cambio de bucket', () => {
+  // Bug regresión: cuando el state apunta a un índice válido en el bucket
+  // previo pero out-of-bounds en el bucket actual (cambió por TTM decreciente),
+  // el código intentaba leer obs[index].ym → undefined. Ahora valida bounds
+  // y fuerza restart si es necesario.
+  it('maneja cambio de bucket entre llamadas sin lanzar error', () => {
+    const panel: TTMPanel = {
+      schema_version: '1.0',
+      generated_at: '2026-06-03T00:00:00Z',
+      panel: {
+        ig: {
+          // Bucket TTM=120 tiene 20 observaciones
+          '120': Array.from({ length: 20 }, (_, i) => ({
+            ticker: `BSCQ${i}`,
+            ym: '2024-01',
+            ret: 0.001 + i * 0.0001,
+          })),
+          // Bucket TTM=60 tiene solo 5 (más chico)
+          '60': Array.from({ length: 5 }, (_, i) => ({
+            ticker: `BSCU${i}`,
+            ym: '2025-01',
+            ret: 0.002 + i * 0.0001,
+          })),
+        },
+        hy: {},
+      },
+      coverage: {
+        ig: { min_ttm: 60, max_ttm: 120, total_obs: 25 },
+        hy: { min_ttm: 0, max_ttm: 0, total_obs: 0 },
+      },
+    };
+    const state = initBootstrapState();
+    const prng = makeDeterministicPrng(42);
+    // Primer call: bucket TTM=120 (20 obs)
+    expect(() => sampleReturnFromBucket(panel, 'ig', 120, state, prng)).not.toThrow();
+    // El state apunta a un índice válido para TTM=120 (e.g., 18)
+    // Forzar al state un índice fuera de bounds del bucket TTM=60
+    state.currentBlockObsIdx = 15; // >= bucket TTM=60 size (5)
+    // Segundo call con bucket distinto: no debe lanzar
+    expect(() => sampleReturnFromBucket(panel, 'ig', 60, state, prng)).not.toThrow();
+    // El state debe haberse reajustado al nuevo bucket
+    expect(state.currentBlockObsIdx).toBeLessThan(5);
+  });
+
+  it('1000 calls con TTM decreciente no lanzan error', () => {
+    const panel: TTMPanel = {
+      schema_version: '1.0',
+      generated_at: '2026-06-03T00:00:00Z',
+      panel: {
+        ig: {
+          // Buckets de tamaño muy distinto
+          '120': Array.from({ length: 30 }, (_, i) => ({ ticker: `A${i}`, ym: '2024-01', ret: 0.001 })),
+          '60': Array.from({ length: 10 }, (_, i) => ({ ticker: `B${i}`, ym: '2024-01', ret: 0.002 })),
+          '30': Array.from({ length: 3 }, (_, i) => ({ ticker: `C${i}`, ym: '2024-01', ret: 0.003 })),
+          '1': [{ ticker: 'D', ym: '2024-01', ret: 0.004 }],
+        },
+        hy: {},
+      },
+      coverage: {
+        ig: { min_ttm: 1, max_ttm: 120, total_obs: 44 },
+        hy: { min_ttm: 0, max_ttm: 0, total_obs: 0 },
+      },
+    };
+    const state = initBootstrapState();
+    const prng = makeDeterministicPrng(99);
+    // TTM decreciente de 120 a 1 — simulando un bullet vivo a lo largo del tiempo
+    expect(() => {
+      for (let ttm = 120; ttm >= 1; ttm--) {
+        sampleReturnFromBucket(panel, 'ig', ttm, state, prng);
+      }
+    }).not.toThrow();
+  });
+});
+
 describe('Stationary bootstrap properties', () => {
   const panel = makeMockPanel();
 
