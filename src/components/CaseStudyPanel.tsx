@@ -360,6 +360,12 @@ export default function CaseStudyPanel() {
 
   const [showAdvanced, setShowAdvanced] = useState(false);
   const worker = useArenaWorker();
+  // Panel TTM se carga via hook compartido (cache singleton). Se pasa al
+  // worker solo si config.bulletReturnsEngine === 'bucket-bootstrap'.
+  // Si el panel no está cargado (loading o unavailable), configToJobInput
+  // lo recibe como null y el worker revierte a paramétrico automáticamente.
+  const ttmPanelState = useTTMPanel();
+  const ttmPanel = ttmPanelState.kind === 'ok' ? ttmPanelState.panel : null;
 
   // Ventana temporal del fan chart — empieza en "Total" tras cada simulación.
   // Estado local (no en store) porque es transitorio: si el usuario cambia el
@@ -378,12 +384,12 @@ export default function CaseStudyPanel() {
   const handleRun = useCallback(async () => {
     setStatus('running');
     try {
-      const out = await worker.run(configToJobInput(config));
+      const out = await worker.run(configToJobInput(config, ttmPanel));
       setResult(out);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     }
-  }, [config, worker, setStatus, setResult, setError]);
+  }, [config, ttmPanel, worker, setStatus, setResult, setError]);
 
   // DPF1Y baseline percentiles per-mes — viene del worker per-sim (paired con
   // los yield paths del bootstrap). Cada 12 meses el sim lockea la tasa al
