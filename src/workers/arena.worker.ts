@@ -649,6 +649,29 @@ function computeHoldToMaturityPath(
   const nObs = HISTORICAL_DEFAULT_DATA.length;
   const blockSize = DEFAULT_BOOTSTRAP_BLOCK_YEARS;
 
+  // PRE-COMPUTAR mediana cross-paths de bullets para cada mes.
+  // La valuación HTM asume que el cliente no vende los bullets — la
+  // volatilidad mark-to-market de curva + spread cross-path NO debe
+  // afectar al cliente que se queda hasta vencimiento. Usar la mediana
+  // como proxy del "valor esperado del bullets sleeve a t" elimina esa
+  // vol y deja que la banda HTM solo refleje:
+  //   - vol del equity sleeve (cross-path, real)
+  //   - vol del cash sleeve (cross-path, mínima)
+  //   - vol del haircut por defaults (cross-path, chica para IG ~0.5%/yr)
+  //
+  // Esto produce una banda HTM materialmente más angosta que la MTM,
+  // visualizando el concepto del cliente "si me quedo, esto recibo".
+  const bulletsMedian = new Float64Array(Hp1);
+  const col = new Float64Array(nSims);
+  for (let t = 0; t < Hp1; t++) {
+    for (let s = 0; s < nSims; s++) {
+      col[s] = out.sleevePath[(s * Hp1 + t) * 3 + 0];
+    }
+    const sorted = Float64Array.from(col);
+    sorted.sort();
+    bulletsMedian[t] = sorted[Math.floor(0.5 * (nSims - 1))];
+  }
+
   for (let s = 0; s < nSims; s++) {
     // PRNG per-path: seed derivado para reproducibilidad por path
     const prng = makePrng(baseSeed + s * 7919); // 7919 primo aleatorio
@@ -685,13 +708,15 @@ function computeHoldToMaturityPath(
       void yearOfT;
     }
 
-    // Aplicar a cada mes: HTM = bullets × (1 - hc) + equity + cash
+    // Aplicar a cada mes: HTM = bullets_mediana × (1 - hc) + equity + cash
+    // El componente bullets NO tiene vol cross-path (usa la mediana). Equity
+    // y cash sí tienen vol per-path (son a mercado). Vol del haircut tiene
+    // contribución chica para IG (~0.5%/yr).
     for (let t = 0; t < Hp1; t++) {
       const base = (s * Hp1 + t) * 3;
-      const bullets = out.sleevePath[base + 0];
       const equity = out.sleevePath[base + 1];
       const cash = out.sleevePath[base + 2];
-      aumHTM[s * Hp1 + t] = bullets * (1 - haircut[t]) + equity + cash;
+      aumHTM[s * Hp1 + t] = bulletsMedian[t] * (1 - haircut[t]) + equity + cash;
     }
   }
 

@@ -2147,6 +2147,29 @@ function SleevesDetailPanel({ config }: { config: CaseStudyConfig }) {
   // el bloque custom — descripción, categoría, proxies y caveats salen de ahí.
   const catalog = useEquityCatalogByTicker();
 
+  // Issuer del ladder — controla la descripción del sleeve bullets de forma
+  // dinámica (igual que el mix de equity controla la del sleeve equity).
+  // Se selecciona en el panel arriba (clientResidency + bulletIssuer).
+  const bulletIssuerLabel = (() => {
+    if (config.bulletIssuer === 'iBonds') return 'iBonds UCITS (BlackRock)';
+    if (config.bulletIssuer === 'bulletshares-ucits') return 'BulletShares UCITS (Invesco)';
+    if (config.bulletIssuer === 'split-50-50') return 'Split 50/50 iBonds + BulletShares';
+    return 'iBonds UCITS';
+  })();
+  const isDefaultIssuer = config.bulletIssuer === 'iBonds';
+  const ladderProviderText = (() => {
+    if (config.bulletIssuer === 'bulletshares-ucits') {
+      return 'Escalera basada en Invesco BulletShares USD Corporate UCITS — vintages 2026–2030 (BS6A/BS7A/BS8A/BS9A/BS0A.L). Cobertura actual del lineup UCITS llega hasta 2030. Vintages posteriores se modelan como sintéticos extendidos (continuación paramétrica).';
+    }
+    if (config.bulletIssuer === 'split-50-50') {
+      return 'Escalera con split issuer 50/50 — vintages 2026–2030 mitad iShares iBonds UCITS USD Corp, mitad Invesco BulletShares USD Corp UCITS (BS6A/7A/8A/9A/0A.L). Vintages 2031–2034 son 100% iBonds (BulletShares no cubre esos años). Vintages 2035+ son sintéticos extendidos.';
+    }
+    return 'Escalera de 11 bullets investment-grade corporativos USD: 9 vintages reales 2026–2034 (BlackRock iBonds UCITS USD Corp Term ETFs ID26.L–ID34.L) + 2 sintéticos 2035S/2036S. Inicialización equal-weight (1/11 ≈ 9.1% del sleeve por bullet). Es el motor de carry estable del portafolio.';
+  })();
+  const residencyNote = config.clientResidency === 'us-resident'
+    ? 'Cliente US-resident — selección elegible adicional: US BulletShares Corp IG (BSCQ-BSCZ) y munis si se activa el toggle correspondiente. Estate tax US-situs no es problema (exención US$13M).'
+    : 'Cliente offshore (non-US Person) — solo UCITS por defecto. Si se elige US-registered en el dropdown, aplica withholding 30% sobre distribuciones + estate tax US-situs (exención US$60k). Ver Apéndice fiscal del PDF.';
+
   return (
     <div className="bg-white dark:bg-mercantil-dark-panel rounded-lg border border-mercantil-line dark:border-mercantil-dark-line p-5">
       <h3 className="text-sm uppercase tracking-wider text-mercantil-slate dark:text-mercantil-dark-slate font-medium mb-1">
@@ -2168,28 +2191,37 @@ function SleevesDetailPanel({ config }: { config: CaseStudyConfig }) {
               <span className="inline-block w-3 h-3 rounded-sm" style={{ background: '#003566' }} />
               <strong className="text-mercantil-ink dark:text-mercantil-dark-ink">Sleeve Bullets</strong>
               <span className="text-xs text-mercantil-slate dark:text-mercantil-dark-slate">
-                {bulletAumPct}% del AUM · ladder iBonds corporativo IG
+                {bulletAumPct}% del AUM · ladder {bulletIssuerLabel}
               </span>
             </span>
             <span className="text-xs text-mercantil-orange">click para detalle ▾</span>
           </summary>
           <div className="px-4 pb-4 pt-2 text-sm space-y-3">
             <p>
-              Escalera de 11 bullets investment-grade corporativos USD: 9 vintages reales 2026–2034
-              (BlackRock iBonds UCITS USD Corp Term ETFs) + 2 sintéticos 2035S/2036S. Inicialización equal-weight
-              (1/11 ≈ 9.1% del sleeve por bullet). Es el <strong>motor de carry estable</strong> del portafolio.
+              {ladderProviderText} Es el <strong>motor de carry estable</strong> del portafolio.
+            </p>
+            <p className="text-xs italic text-mercantil-slate dark:text-mercantil-dark-slate">
+              {residencyNote}
             </p>
 
             <div>
               <div className="font-semibold text-mercantil-ink dark:text-mercantil-dark-ink text-xs uppercase tracking-wider mb-1">
                 Diversificación interna por plazo
               </div>
-              <ul className="text-xs space-y-0.5">
-                <li>• <strong>Corto</strong> (&lt;3y) — 3 bullets ID26/27/28 → 27.3% del ladder, {(0.273 * config.bulletTotalPct * 100).toFixed(1)}% del AUM</li>
-                <li>• <strong>Medio</strong> (3–6y) — 3 bullets ID29/30/31 → 27.3% del ladder, {(0.273 * config.bulletTotalPct * 100).toFixed(1)}% del AUM</li>
-                <li>• <strong>Largo</strong> (6–9y) — 3 bullets ID32/33/34 → 27.3% del ladder, {(0.273 * config.bulletTotalPct * 100).toFixed(1)}% del AUM</li>
-                <li>• <strong>Extra-largo</strong> (9–11y) — 2 sintéticos ID35S/36S → 18.2% del ladder, {(0.182 * config.bulletTotalPct * 100).toFixed(1)}% del AUM</li>
-              </ul>
+              {isDefaultIssuer ? (
+                <ul className="text-xs space-y-0.5">
+                  <li>• <strong>Corto</strong> (&lt;3y) — 3 bullets ID26/27/28 → 27.3% del ladder, {(0.273 * config.bulletTotalPct * 100).toFixed(1)}% del AUM</li>
+                  <li>• <strong>Medio</strong> (3–6y) — 3 bullets ID29/30/31 → 27.3% del ladder, {(0.273 * config.bulletTotalPct * 100).toFixed(1)}% del AUM</li>
+                  <li>• <strong>Largo</strong> (6–9y) — 3 bullets ID32/33/34 → 27.3% del ladder, {(0.273 * config.bulletTotalPct * 100).toFixed(1)}% del AUM</li>
+                  <li>• <strong>Extra-largo</strong> (9–11y) — 2 sintéticos ID35S/36S → 18.2% del ladder, {(0.182 * config.bulletTotalPct * 100).toFixed(1)}% del AUM</li>
+                </ul>
+              ) : (
+                <p className="text-xs italic text-mercantil-slate dark:text-mercantil-dark-slate">
+                  Distribución por plazo equivalente al lineup iBonds default: ~27% corto (&lt;3y), ~27% medio (3–6y),
+                  ~27% largo (6–9y), ~18% extra-largo (9–11y). Cuando el issuer es {bulletIssuerLabel}, los tickers
+                  específicos cambian pero la estructura de plazos se conserva equal-weight.
+                </p>
+              )}
             </div>
 
             <div>
