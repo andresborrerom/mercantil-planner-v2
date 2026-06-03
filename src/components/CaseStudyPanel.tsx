@@ -1113,7 +1113,7 @@ export default function CaseStudyPanel() {
         {/* --- Run button --- */}
         <div className="flex items-center justify-between pt-2">
           <div className="text-xs text-mercantil-slate dark:text-mercantil-dark-slate">
-            Configuración preconfigurada: 5M USD, 20y, ladder iBonds + 25 extensiones, USMV+SCHD, BIL.
+            Configuración preconfigurada: 5M USD, 20y, ladder UCITS reales iBonds Dec 2026–2034 (sin sintéticos), USMV+SCHD, BIL. ⚠ Horizonte mayor a 8.6y: principal liberado tras vencer ladder cae en FALLBACK_EQUITY.
           </div>
           <button
             onClick={handleRun}
@@ -2162,9 +2162,9 @@ function SleevesDetailPanel({ config }: { config: CaseStudyConfig }) {
       return 'Escalera basada en Invesco BulletShares USD Corporate UCITS — vintages 2026–2030 (BS6A/BS7A/BS8A/BS9A/BS0A.L). Cobertura actual del lineup UCITS llega hasta 2030. Vintages posteriores se modelan como sintéticos extendidos (continuación paramétrica).';
     }
     if (config.bulletIssuer === 'split-50-50') {
-      return 'Escalera con split issuer 50/50 — vintages 2026–2030 mitad iShares iBonds UCITS USD Corp, mitad Invesco BulletShares USD Corp UCITS (BS6A/7A/8A/9A/0A.L). Vintages 2031–2034 son 100% iBonds (BulletShares no cubre esos años). Vintages 2035+ son sintéticos extendidos.';
+      return 'Escalera con split issuer 50/50 — vintages 2026–2030 mitad iShares iBonds UCITS USD Corp, mitad Invesco BulletShares USD Corp UCITS (BS6A/7A/8A/9A/0A.L). Vintages 2031–2034 son 100% iBonds (BulletShares no cubre esos años). Sin sintéticos extendidos: la oferta UCITS real no llega más allá de 2034.';
     }
-    return 'Escalera de 11 bullets investment-grade corporativos USD: 9 vintages reales 2026–2034 (BlackRock iBonds UCITS USD Corp Term ETFs ID26.L–ID34.L) + 2 sintéticos 2035S/2036S. Inicialización equal-weight (1/11 ≈ 9.1% del sleeve por bullet). Es el motor de carry estable del portafolio.';
+    return 'Escalera de 9 vintages reales investment-grade corporativos USD: BlackRock iBonds UCITS USD Corp Term ETFs Dec 2026–Dec 2034 (ID26.L–ID34.L). Inicialización equal-weight (~11% del sleeve por bullet). TTM máximo del ladder al inicio: ~8.6 años — limitado a lo que existe en oferta UCITS real, sin sintéticos extendidos. Es el motor de carry estable del portafolio.';
   })();
   const residencyNote = config.clientResidency === 'us-resident'
     ? 'Cliente US-resident — selección elegible adicional: US BulletShares Corp IG (BSCQ-BSCZ) y munis si se activa el toggle correspondiente. Estate tax US-situs no es problema (exención US$13M).'
@@ -2210,10 +2210,10 @@ function SleevesDetailPanel({ config }: { config: CaseStudyConfig }) {
               </div>
               {isDefaultIssuer ? (
                 <ul className="text-xs space-y-0.5">
-                  <li>• <strong>Corto</strong> (&lt;3y) — 3 bullets ID26/27/28 → 27.3% del ladder, {(0.273 * config.bulletTotalPct * 100).toFixed(1)}% del AUM</li>
-                  <li>• <strong>Medio</strong> (3–6y) — 3 bullets ID29/30/31 → 27.3% del ladder, {(0.273 * config.bulletTotalPct * 100).toFixed(1)}% del AUM</li>
-                  <li>• <strong>Largo</strong> (6–9y) — 3 bullets ID32/33/34 → 27.3% del ladder, {(0.273 * config.bulletTotalPct * 100).toFixed(1)}% del AUM</li>
-                  <li>• <strong>Extra-largo</strong> (9–11y) — 2 sintéticos ID35S/36S → 18.2% del ladder, {(0.182 * config.bulletTotalPct * 100).toFixed(1)}% del AUM</li>
+                  <li>• <strong>Corto</strong> (&lt;3y) — 3 bullets ID26/27/28 → 33.3% del ladder, {(0.333 * config.bulletTotalPct * 100).toFixed(1)}% del AUM</li>
+                  <li>• <strong>Medio</strong> (3–6y) — 3 bullets ID29/30/31 → 33.3% del ladder, {(0.333 * config.bulletTotalPct * 100).toFixed(1)}% del AUM</li>
+                  <li>• <strong>Largo</strong> (6–9y) — 3 bullets ID32/33/34 → 33.3% del ladder, {(0.333 * config.bulletTotalPct * 100).toFixed(1)}% del AUM</li>
+                  <li className="text-mercantil-slate/70 dark:text-mercantil-dark-slate/70 italic">⚠ Sin tramo extra-largo: la oferta UCITS no incluye vintages &gt;2034 (ID34.L vence Dec 2034, ~8.6y TTM al inicio).</li>
                 </ul>
               ) : (
                 <p className="text-xs italic text-mercantil-slate dark:text-mercantil-dark-slate">
@@ -2231,7 +2231,7 @@ function SleevesDetailPanel({ config }: { config: CaseStudyConfig }) {
               <ul className="text-xs space-y-0.5">
                 <li>• <strong>Calidad crediticia</strong>: investment grade (rating BBB– o superior; promedio del índice ~A3/A-). Sin high yield, sin emerging corporate.</li>
                 <li>• <strong>Multi-emisor</strong>: cada iBond UCITS replica un índice Bloomberg corporativo con ~200–400 emisores (financieros, industriales, healthcare, comunicaciones, utilities, consumo). No hay exposure significativa a un emisor único — el peso máximo por emisor es típicamente &lt;3%.</li>
-                <li>• <strong>Riesgo de default</strong>: tasa histórica IG anual ~0.10–0.30% (depende del rating). En el peor año (2008–2009) los IG tocaron ~0.40%. Sobre 11 bullets × ~300 emisores ≈ 3.300 bonos individuales, el efecto de un default específico es muy pequeño (típicamente recovery ~40% → loss-given-default por default ~0.18% del bono afectado).</li>
+                <li>• <strong>Riesgo de default</strong>: tasa histórica IG anual ~0.10–0.30% (depende del rating). En el peor año (2008–2009) los IG tocaron ~0.40%. Sobre 9 bullets × ~300 emisores ≈ 2.700 bonos individuales, el efecto de un default específico es muy pequeño (típicamente recovery ~40% → loss-given-default por default ~0.18% del bono afectado).</li>
                 <li>• <strong>Spread modelado</strong>: {spreadBp} bp sobre la curva Treasury (configurable en panel Avanzado). Media histórica IG corp: ~110 bp; rango típico 70–250 bp; picos crisis: 400–600 bp.</li>
               </ul>
             </div>
