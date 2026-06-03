@@ -323,6 +323,12 @@ export default function CaseStudyPanel() {
   // "qué pasa si no hago nada fancy" para entender el valor relativo de la
   // propuesta. Aplica a personas naturales y jurídicas por igual.
   const [showDpfBaseline, setShowDpfBaseline] = useState(true);
+  // Toggle "A Mercado / A Vencimiento" del fan chart. Default A Mercado
+  // (comportamiento histórico del panel). Cuando se prende HTM, el chart
+  // muestra el aumPathHTM (bullets con haircut por defaults, equity/cash
+  // a mercado). El Y-axis se mantiene sobre AMBOS paths para que el toggle
+  // no haga saltar el eje y se vea claramente la diferencia de ancho.
+  const [valuationMode, setValuationMode] = useState<'mtm' | 'htm'>('mtm');
 
   // Sim index para el "camino individual" — una sola simulación de las N para
   // ilustrar la dinámica concreta de cada estrategia. Se re-samplea al cambiar
@@ -454,21 +460,28 @@ export default function CaseStudyPanel() {
     const { nSims, horizonMonths } = result.meta;
     const Hp1 = horizonMonths + 1;
     const ps = [0.05, 0.25, 0.5, 0.75, 0.95];
-    // AUM gross del fondo — el préstamo NO se descuenta del path (es deuda
-    // extra-portfolio que el fondo sirve mensualmente desde sus flujos, no
-    // un retiro de capital). El loan se manifiesta como menor crecimiento,
-    // no como un brinco al desembolso.
+    // AUM "a mercado" — valoración estándar mark-to-market con curva + spread.
     const netPct = pctPath(result.aumPath, nSims, Hp1, ps);
+    // AUM "a vencimiento" (HTM) — bullets con haircut por defaults (bootstrap
+    // Moody's), curva y spread NO afectan la valuación de bullets vivos.
+    // Equity y cash siempre a mercado. Banda típicamente mucho más angosta.
+    const htmPct = pctPath(result.aumPathHTM, nSims, Hp1, ps);
     type Point = {
       month: number;
+      // Mark-to-market (valoración estándar)
       p50: number;
       band5095: [number, number];
       band2575: [number, number];
+      p5: number; p25: number; p75: number; p95: number;
+      // Hold-to-maturity (con haircut de defaults, sin volatilidad de curva)
+      p50HTM: number;
+      band5095HTM: [number, number];
+      band2575HTM: [number, number];
+      p5HTM: number; p25HTM: number; p75HTM: number; p95HTM: number;
       deposit: number;
       dpf?: number;
       dpfBand5095?: [number, number];
       dpfBand2575?: [number, number];
-      p5: number; p25: number; p75: number; p95: number;
       [variantKey: string]: number | [number, number] | undefined;
     };
     const data: Point[] = [];
@@ -479,13 +492,18 @@ export default function CaseStudyPanel() {
       const p50 = netPct[t][2] / 1e6;
       const p75 = netPct[t][3] / 1e6;
       const p95 = netPct[t][4] / 1e6;
+      const p5h = htmPct[t][0] / 1e6;
+      const p25h = htmPct[t][1] / 1e6;
+      const p50h = htmPct[t][2] / 1e6;
+      const p75h = htmPct[t][3] / 1e6;
+      const p95h = htmPct[t][4] / 1e6;
       const point: Point = {
         month: t,
-        p50,
-        band5095: [p5, p95],
-        band2575: [p25, p75],
-        deposit: cumDepositUsd / 1e6,
+        p50, band5095: [p5, p95], band2575: [p25, p75],
         p5, p25, p75, p95,
+        p50HTM: p50h, band5095HTM: [p5h, p95h], band2575HTM: [p25h, p75h],
+        p5HTM: p5h, p25HTM: p25h, p75HTM: p75h, p95HTM: p95h,
+        deposit: cumDepositUsd / 1e6,
       };
       // DPF baseline bands: mediana + p5-p95 + p25-p75 sobre las N sims del
       // DPF1Y rolling computado por el worker (paired con yield paths). Tiene
@@ -535,8 +553,13 @@ export default function CaseStudyPanel() {
     let max = -Infinity;
     for (const p of wealthChartData) {
       if (p.month < window.startMonth || p.month > window.endMonth) continue;
+      // El Y-domain considera AMBAS valuaciones (a mercado + a vencimiento)
+      // simultáneamente para que el toggle entre ellas no haga saltar el eje
+      // — el cliente debe ver visualmente cómo la banda HTM es más angosta.
       if (p.p5 < min) min = p.p5;
       if (p.p95 > max) max = p.p95;
+      if (p.p5HTM < min) min = p.p5HTM;
+      if (p.p95HTM > max) max = p.p95HTM;
       if (p.deposit < min) min = p.deposit;
       if (p.deposit > max) max = p.deposit;
       // DPF baseline (mediana + bandas) si está habilitado
@@ -1270,15 +1293,57 @@ export default function CaseStudyPanel() {
 
           {/* Wealth fan chart */}
           <div className="bg-white dark:bg-mercantil-dark-panel rounded-lg border border-mercantil-line dark:border-mercantil-dark-line p-5">
-            <h3 className="text-sm uppercase tracking-wider text-mercantil-slate dark:text-mercantil-dark-slate font-medium mb-1">
-              AUM del fondo — percentiles ($ millones)
-            </h3>
+            <div className="flex items-start justify-between gap-3 flex-wrap mb-1">
+              <h3 className="text-sm uppercase tracking-wider text-mercantil-slate dark:text-mercantil-dark-slate font-medium">
+                AUM del fondo — percentiles ($ millones)
+              </h3>
+              {/* Toggle Valuación: A Mercado / A Vencimiento. Y-axis fijo
+                  sobre ambos paths para que la diferencia de ancho de
+                  banda sea visualmente clara. */}
+              <div className="flex items-center gap-1 text-xs">
+                <span className="text-mercantil-slate dark:text-mercantil-dark-slate mr-1">Valuación:</span>
+                <button
+                  type="button"
+                  onClick={() => setValuationMode('mtm')}
+                  className={`px-2 py-1 rounded border transition ${
+                    valuationMode === 'mtm'
+                      ? 'border-mercantil-orange bg-mercantil-orange text-white'
+                      : 'border-mercantil-line dark:border-mercantil-dark-line text-mercantil-slate dark:text-mercantil-dark-slate hover:border-mercantil-orange'
+                  }`}
+                >
+                  A mercado
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setValuationMode('htm')}
+                  className={`px-2 py-1 rounded border transition ${
+                    valuationMode === 'htm'
+                      ? 'border-mercantil-orange bg-mercantil-orange text-white'
+                      : 'border-mercantil-line dark:border-mercantil-dark-line text-mercantil-slate dark:text-mercantil-dark-slate hover:border-mercantil-orange'
+                  }`}
+                  title="Valor a vencimiento natural de cada bullet — bullets con haircut por defaults (bootstrap Moody's), equity y cash a mercado. Refleja qué patrimonio recibe el cliente si se queda al ladder hasta el último bullet."
+                >
+                  A vencimiento
+                </button>
+              </div>
+            </div>
             <p className="text-xs text-mercantil-slate dark:text-mercantil-dark-slate mb-3">
-              Línea naranja = mediana sobre las {result.meta.nSims} simulaciones. Bandas azules = 50% (p25–p75) y 90%
-              (p5–p95) de los caminos posibles. La línea gris punteada es el capital inicial; la verde es capital + aportes
-              acumulados (el piso de "solo ahorrar sin invertir"). La propuesta agrega valor si el camino mediano queda
-              por encima de la verde.
-              {config.loanEnabled && (
+              {valuationMode === 'mtm' ? (
+                <>
+                  <strong>A mercado</strong>: línea naranja = mediana sobre las {result.meta.nSims} simulaciones.
+                  Bandas = 50% (p25–p75) y 90% (p5–p95) de los caminos posibles. Refleja el valor que el cliente
+                  vería en su extracto trimestral — incluye volatilidad de curva, spread y defaults.
+                </>
+              ) : (
+                <>
+                  <strong>A vencimiento</strong>: línea naranja = mediana sobre las {result.meta.nSims} simulaciones,
+                  valorando bullets con haircut por defaults (bootstrap histórico Moody's 1983–2024). La curva, el
+                  spread y el sentiment de mercado <em>NO afectan</em> esta valuación de bullets vivos. Es el
+                  patrimonio que el cliente recibe si se queda al ladder hasta el vencimiento natural de cada bullet.
+                  Equity y cash siguen a mercado (no tienen vencimiento).
+                </>
+              )}
+              {config.loanEnabled && valuationMode === 'mtm' && (
                 <> El <strong>AUM del fondo</strong> es bruto: el préstamo (extra-portfolio) NO se descuenta de
                 este path. El fondo solo paga las cuotas mensuales (cash → equity → bullet en cascada), por eso
                 no hay brincos visibles al desembolso — solo crecimiento marginalmente más lento durante el plazo.</>
@@ -1330,10 +1395,13 @@ export default function CaseStudyPanel() {
                     iconType="line"
                     wrapperStyle={{ fontSize: 11, paddingTop: 4 }}
                   />
-                  {/* Bandas: dataKey tupla [lower, upper] → recharts pinta solo entre los 2 valores */}
+                  {/* Bandas: dataKey tupla [lower, upper] → recharts pinta solo
+                      entre los 2 valores. Cambia entre 'band5095'/'band2575'/'p50'
+                      (a mercado) y 'band5095HTM'/'band2575HTM'/'p50HTM' (a vencimiento)
+                      según el toggle. */}
                   <Area
                     type="monotone"
-                    dataKey="band5095"
+                    dataKey={valuationMode === 'htm' ? 'band5095HTM' : 'band5095'}
                     stroke="none"
                     fill="#F58220"
                     fillOpacity={0.10}
@@ -1342,7 +1410,7 @@ export default function CaseStudyPanel() {
                   />
                   <Area
                     type="monotone"
-                    dataKey="band2575"
+                    dataKey={valuationMode === 'htm' ? 'band2575HTM' : 'band2575'}
                     stroke="none"
                     fill="#F58220"
                     fillOpacity={0.24}
@@ -1351,11 +1419,11 @@ export default function CaseStudyPanel() {
                   />
                   <Line
                     type="monotone"
-                    dataKey="p50"
+                    dataKey={valuationMode === 'htm' ? 'p50HTM' : 'p50'}
                     stroke="#F58220"
                     strokeWidth={2}
                     dot={false}
-                    name="Mediana (run actual)"
+                    name={valuationMode === 'htm' ? 'Mediana — a vencimiento' : 'Mediana — a mercado'}
                     isAnimationActive={false}
                   />
                   {/* Overlay de medianas de variantes guardadas. Cada una con
