@@ -133,8 +133,13 @@ export function sampleReturnFromBucket(
   }
 
   // Decidir: ¿iniciar nuevo bloque o continuar el actual?
+  // FORZAR restart si el state apunta a índice inválido en el bucket actual
+  // (el bucket cambia cuando el TTM del bullet cambia entre meses; el state
+  // se mantiene pero el bucket puede ser distinto). Esto evita undefined-reads.
+  const indexInBounds =
+    state.currentBlockObsIdx >= 0 && state.currentBlockObsIdx < obs.length;
   const restartProb = 1 / blockSizeMean;
-  const shouldRestart = state.currentBlockObsIdx < 0 || prng() < restartProb;
+  const shouldRestart = !indexInBounds || prng() < restartProb;
 
   if (shouldRestart) {
     // Iniciar nuevo bloque: samplear obs inicial uniformemente
