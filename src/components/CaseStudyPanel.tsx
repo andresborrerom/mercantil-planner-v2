@@ -930,7 +930,7 @@ export default function CaseStudyPanel() {
             onClick={() => setShowAdvanced((v) => !v)}
             className="text-xs text-mercantil-slate dark:text-mercantil-dark-slate hover:text-mercantil-orange"
           >
-            {showAdvanced ? '▼' : '▶'} Avanzado (spread bullets, thresholds rollover A/B/C)
+            {showAdvanced ? '▼' : '▶'} Avanzado (spread bullets, all-in fee, thresholds rollover A/B/C)
           </button>
           {showAdvanced && (
             <div className="mt-3 space-y-3 border-l-2 border-mercantil-line dark:border-mercantil-dark-line pl-4">
@@ -945,7 +945,26 @@ export default function CaseStudyPanel() {
                   suffix="bp"
                   hint="sobre treasury"
                 />
+                <NumInput
+                  label="All-in fee"
+                  value={config.allInFeeBps}
+                  onChange={(v) => setConfig({ allInFeeBps: Math.round(v) })}
+                  step={5}
+                  min={0}
+                  max={500}
+                  suffix="bp/yr"
+                  hint="TER + custodia + asesoría"
+                />
               </div>
+              {config.allInFeeBps > 0 && (
+                <p className="text-[11px] text-mercantil-slate dark:text-mercantil-dark-slate italic">
+                  Stats reportados son <strong>netos</strong> del all-in fee de {config.allInFeeBps} bp/yr
+                  ({(config.allInFeeBps / 100).toFixed(2)}% anual). Se descuenta del NAV mensualmente como
+                  post-process; el motor matemático (bootstrap, regímenes, cascada) corre intacto sobre
+                  retornos brutos. Diferencia vs. modelo con fee deducido step-by-step: &lt;0.5% en
+                  finalAum para fees ≤50 bp.
+                </p>
+              )}
               <div className="grid grid-cols-3 gap-3 md:grid-cols-5">
                 <NumInput
                   label="θ_high"
