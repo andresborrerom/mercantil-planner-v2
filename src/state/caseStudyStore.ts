@@ -17,6 +17,7 @@
  */
 import { create } from 'zustand';
 import { DEFAULT_ROLLOVER_THRESHOLDS, type RolloverThresholds } from '../domain/rollover';
+import { monthsBetween } from '../domain/bullets';
 import type { ArenaJobInput, ArenaJobOutput } from '../workers/arena.worker';
 
 export type CaseStudyStatus = 'idle' | 'running' | 'done' | 'error';
@@ -157,9 +158,31 @@ export function configToJobInput(config: CaseStudyConfig): ArenaJobInput {
     ticker: m.ticker,
     weight: m.weight / totalW,
   }));
+  // Lineup explícito: solo iBonds UCITS reales (Dec 2026 – Dec 2034).
+  // Sintéticos eliminados — el cliente offshore solo puede comprar lo que
+  // existe en oferta UCITS, no productos paramétricos extrapolados.
+  // Cuando un bullet vence y rollover táctico activa, el principal liberado
+  // se reasigna según las reglas A/B/C; si no hay bullet sintético disponible
+  // (régimen A o C con destino "siguiente sintético"), el motor cae en
+  // FALLBACK_EQUITY (principal va a equity, sujeto a banda dura eqtyMax).
+  // Esto refleja la realidad operativa: no hay producto UCITS más allá del
+  // último vintage disponible hoy.
+  const today = new Date(2026, 4, 15); // 2026-05-15 — anclado al lineup TBSC
+  const dec15 = (y: number) => new Date(y, 11, 15);
+  const ucitsRealBullets = [];
+  for (let v = 2026; v <= 2034; v++) {
+    const mY = monthsBetween(today, dec15(v)) / 12;
+    if (mY <= 0) continue; // skip si ya venció antes de hoy
+    ucitsRealBullets.push({
+      name: `ID${(v % 100).toString().padStart(2, '0')}`,
+      maturityY: mY,
+      durInitY: mY * 0.93,
+      isSynthetic: false,
+    });
+  }
   return {
-    realBullets: null, // worker usará defaultBulletLineup()
-    nExtensions: 25,
+    realBullets: ucitsRealBullets,
+    nExtensions: 0, // sin sintéticos — UCITS only
     extensionSpacingY: 1.0,
     bulletTotalPct: config.bulletTotalPct,
     equityPct: config.equityPct,
