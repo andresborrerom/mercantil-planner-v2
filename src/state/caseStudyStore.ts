@@ -158,15 +158,20 @@ export function configToJobInput(config: CaseStudyConfig): ArenaJobInput {
     ticker: m.ticker,
     weight: m.weight / totalW,
   }));
-  // Lineup explícito: solo iBonds UCITS reales (Dec 2026 – Dec 2034).
-  // Sintéticos eliminados — el cliente offshore solo puede comprar lo que
-  // existe en oferta UCITS, no productos paramétricos extrapolados.
-  // Cuando un bullet vence y rollover táctico activa, el principal liberado
-  // se reasigna según las reglas A/B/C; si no hay bullet sintético disponible
-  // (régimen A o C con destino "siguiente sintético"), el motor cae en
-  // FALLBACK_EQUITY (principal va a equity, sujeto a banda dura eqtyMax).
-  // Esto refleja la realidad operativa: no hay producto UCITS más allá del
-  // último vintage disponible hoy.
+  // Lineup INICIAL explícito: solo iBonds UCITS reales (Dec 2026 – Dec 2034).
+  // Estos son los productos que el cliente offshore PUEDE COMPRAR HOY en el
+  // mercado UCITS. NO se incluyen sintéticos en el lineup inicial — no hay
+  // productos UCITS con maturity > 2034 en el mercado actual.
+  //
+  // Sin embargo, para el ROLLOVER TÁCTICO durante la simulación, sí se
+  // permiten bullets sintéticos representando la asunción de que
+  // "BlackRock seguirá lanzando nuevas vintages anualmente con TTM ~8.6y"
+  // (consistente con el patrón histórico desde 2014). Esos sintéticos NO
+  // son productos del lineup inicial — son "el siguiente bullet 8y que
+  // estará disponible cuando llegue el momento del rollover". Si los
+  // eliminamos completamente, el principal liberado tras vencer bullets
+  // cae en FALLBACK_EQUITY (todo a equity), lo cual NO refleja la
+  // realidad operativa (el cliente puede comprar nuevos vintages a futuro).
   const today = new Date(2026, 4, 15); // 2026-05-15 — anclado al lineup TBSC
   const dec15 = (y: number) => new Date(y, 11, 15);
   const ucitsRealBullets = [];
@@ -182,7 +187,10 @@ export function configToJobInput(config: CaseStudyConfig): ArenaJobInput {
   }
   return {
     realBullets: ucitsRealBullets,
-    nExtensions: 0, // sin sintéticos — UCITS only
+    // 25 sintéticos para rollover futuro (asunción razonable de continuidad
+    // de la oferta UCITS). Cobertura efectiva post-vencimientos hasta ~34y.
+    // Coherente con horizonte default 20y del caso TBSC.
+    nExtensions: 25,
     extensionSpacingY: 1.0,
     bulletTotalPct: config.bulletTotalPct,
     equityPct: config.equityPct,
