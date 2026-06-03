@@ -849,6 +849,70 @@ export default function CaseStudyPanel() {
               />
             )}
           </div>
+
+          {/* Issuer del ladder + residencia fiscal del cliente. Decisión
+              OPERATIVA — el motor matemático modela iBonds y BulletShares
+              UCITS como equivalentes (mismo curve + spread + duration decay,
+              empíricamente correlación 0.99 y diff <5bp). La diferencia es
+              issuer risk, AUM por ETF y vintages disponibles. */}
+          <div className="pt-2 border-t border-mercantil-line dark:border-mercantil-dark-line space-y-2">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+              <label className="flex flex-col text-xs">
+                <span className="font-medium text-mercantil-slate dark:text-mercantil-dark-slate mb-1">
+                  Issuer del ladder
+                  <span className="ml-1 text-mercantil-slate/60 dark:text-mercantil-dark-slate/60 font-normal">
+                    (decisión operativa, no afecta motor matemático)
+                  </span>
+                </span>
+                <select
+                  value={config.bulletIssuer}
+                  onChange={(e) => setConfig({ bulletIssuer: e.target.value as typeof config.bulletIssuer })}
+                  className="px-2 py-1 rounded border border-mercantil-line dark:border-mercantil-dark-line bg-white dark:bg-mercantil-dark-panel text-mercantil-ink dark:text-mercantil-dark-ink text-sm"
+                >
+                  <option value="iBonds">iBonds UCITS (BlackRock) — 2026-2034 + sintéticos</option>
+                  <option value="bulletshares-ucits">BulletShares UCITS (Invesco) — 2026-2030</option>
+                  <option value="split-50-50">Split 50/50 iBonds + BulletShares (donde aplique)</option>
+                </select>
+              </label>
+              <label className="flex flex-col text-xs">
+                <span className="font-medium text-mercantil-slate dark:text-mercantil-dark-slate mb-1">
+                  Residencia fiscal del cliente
+                  <span className="ml-1 text-mercantil-slate/60 dark:text-mercantil-dark-slate/60 font-normal">
+                    (filtra opciones de ETFs)
+                  </span>
+                </span>
+                <select
+                  value={config.clientResidency}
+                  onChange={(e) => setConfig({ clientResidency: e.target.value as typeof config.clientResidency })}
+                  className="px-2 py-1 rounded border border-mercantil-line dark:border-mercantil-dark-line bg-white dark:bg-mercantil-dark-panel text-mercantil-ink dark:text-mercantil-dark-ink text-sm"
+                >
+                  <option value="offshore">Offshore (non-US Person) — solo UCITS</option>
+                  <option value="us-resident">US-resident / US Person — UCITS + US-registered</option>
+                </select>
+              </label>
+            </div>
+            {config.bulletIssuer !== 'iBonds' && config.horizonMonths > 60 && (
+              <p className="text-[11px] text-amber-700 dark:text-amber-300 italic">
+                ⚠ BulletShares UCITS USD Corp solo cubre vintages 2026–2030 (5 años desde hoy). Para horizontes
+                {' '}más largos, las vintages 2031+ se modelan como bullets sintéticos extendidos. AUM por ETF
+                {' '}entre US$15M y US$37M — significativamente menor que iBonds UCITS. Ver disclaimer correspondiente
+                {' '}en el PDF del entregable.
+              </p>
+            )}
+            {config.bulletIssuer === 'bulletshares-ucits' && (
+              <p className="text-[11px] text-mercantil-slate dark:text-mercantil-dark-slate italic">
+                Esta opción reemplaza completamente iBonds por BulletShares UCITS para vintages 2026–2030.
+                Útil para diversificar issuer risk fuera de BlackRock o cuando el comité del cliente prefiere
+                explícitamente la familia Invesco.
+              </p>
+            )}
+            {config.bulletIssuer === 'split-50-50' && (
+              <p className="text-[11px] text-mercantil-slate dark:text-mercantil-dark-slate italic">
+                Cada vintage 2026–2030 se compra mitad iBonds + mitad BulletShares UCITS (diversificación
+                issuer risk). Vintages 2031+ siguen 100% iBonds (BulletShares no cubre esos años hoy).
+              </p>
+            )}
+          </div>
         </fieldset>
 
         {/* --- Flows --- */}
