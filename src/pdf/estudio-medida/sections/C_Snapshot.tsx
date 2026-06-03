@@ -106,6 +106,14 @@ export function SnapshotSection({ state }: Props) {
         <Row label="Crecimiento del aporte" value={fmtPct(config.inflowGrowth)} />
         <Row label="Simulaciones (paths)" value={config.nSims.toLocaleString()} />
         <Row label="Semilla del bootstrap" value={String(config.seed)} />
+        <Row
+          label="All-in fee aplicado"
+          value={
+            config.allInFeeBps > 0
+              ? `${config.allInFeeBps} bp/yr (${(config.allInFeeBps / 100).toFixed(2)}% anual) — stats netos`
+              : 'Sin fee aplicado — stats brutos'
+          }
+        />
       </View>
 
       <View style={styles.section}>

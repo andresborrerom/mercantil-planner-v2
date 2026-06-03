@@ -212,8 +212,10 @@ export function ResultsSection({ state }: Props) {
 
       <Text style={styles.warn}>
         Recordatorio: los percentiles representan rangos estadísticos del modelo bajo las asunciones de la simulación,
-        no garantías. Los retornos están expresados en términos brutos. Ver Apéndice — Advertencias regulatorias para
-        el detalle completo de la metodología y limitaciones.
+        no garantías. {config.allInFeeBps > 0
+          ? `Los retornos reportados son NETOS del all-in fee de ${config.allInFeeBps} bp anual (${(config.allInFeeBps / 100).toFixed(2)}%) que cubre TER de los ETFs subyacentes, custodia, asesoría e intermediación.`
+          : 'Los retornos están expresados en términos brutos (sin deducción de TER, custodia, asesoría ni intermediación).'}{' '}
+        Ver Apéndice — Advertencias regulatorias para el detalle completo de la metodología y limitaciones.
       </Text>
     </View>
   );

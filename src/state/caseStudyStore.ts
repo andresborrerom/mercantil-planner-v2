@@ -69,6 +69,16 @@ export type CaseStudyConfig = {
   maxBulletYearsEnabled: boolean;
   /** Cap de duración del sleeve cuando maxBulletYearsEnabled=true. */
   maxBulletYears: number;
+  /**
+   * Fee anual total en basis points (1 bp = 0.01%). Cubre TER de los ETFs
+   * subyacentes, custodia, asesoría e intermediación — todos los costos no
+   * modelados explícitamente por el motor (que opera sobre returns brutos).
+   *
+   * Se aplica como post-process en el worker (no toca el motor matemático,
+   * preserva paridad Python). Si > 0, todos los stats reportados son netos.
+   * Default 0 — comportamiento previo del TBSC se preserva.
+   */
+  allInFeeBps: number;
 };
 
 export const DEFAULT_CASE_CONFIG: CaseStudyConfig = {
@@ -98,6 +108,7 @@ export const DEFAULT_CASE_CONFIG: CaseStudyConfig = {
     { ticker: 'USMV', weight: 0.5 },
     { ticker: 'SCHD', weight: 0.5 },
   ],
+  allInFeeBps: 0,
 };
 
 /** Convierte CaseStudyConfig → ArenaJobInput aplicando defaults fijos. */
@@ -144,6 +155,7 @@ export function configToJobInput(config: CaseStudyConfig): ArenaJobInput {
     cashBandUpper: config.cashBandUpper,
     dpfRateOverride: config.dpfRateOverride,
     maxBulletYears: config.maxBulletYearsEnabled ? config.maxBulletYears : null,
+    allInFeeBps: config.allInFeeBps,
     // Nota: enforceMonthlyEquityCap se hardcodea a true dentro del worker,
     // no se pasa por payload. Esto evita que algún cambio futuro al store
     // termine accidentalmente desactivando el cap mensual.
