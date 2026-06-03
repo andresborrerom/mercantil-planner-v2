@@ -140,24 +140,27 @@ function issuerLabel(i: string): string {
 function ladderDescription(issuer: string): string {
   if (issuer === 'bulletshares-ucits') {
     return (
-      'Escalera basada en Invesco BulletShares USD Corporate UCITS (vintages 2026–2030: ' +
-      'BS6A.L, BS7A.L, BS8A.L, BS9A.L, BS0A.L). La oferta UCITS de BulletShares solo cubre ' +
-      '5 vintages; sin sintéticos extendidos: el cliente offshore no puede invertir en productos ' +
-      'que no existen en el mercado.'
+      'Lineup inicial: Invesco BulletShares USD Corporate UCITS (vintages 2026–2030: ' +
+      'BS6A.L, BS7A.L, BS8A.L, BS9A.L, BS0A.L). La oferta UCITS de BulletShares cubre ' +
+      '5 vintages al inicio. Rollover táctico asume continuidad de la oferta — nuevos ' +
+      'vintages UCITS estarán disponibles cuando llegue el momento de reinvertir el principal.'
     );
   }
   if (issuer === 'split-50-50') {
     return (
-      'Escalera con split issuer 50/50 para vintages 2026–2030 (mitad iShares iBonds UCITS USD Corp, ' +
-      'mitad Invesco BulletShares USD Corp UCITS — BS6A/7A/8A/9A/0A.L). Vintages 2031–2034 son 100% ' +
-      'iBonds (BulletShares no cubre esos años). Sin sintéticos extendidos: la oferta UCITS real no ' +
-      'incluye vintages > 2034.'
+      'Lineup inicial con split issuer 50/50 para vintages 2026–2030 (mitad iShares iBonds UCITS ' +
+      'USD Corp, mitad Invesco BulletShares USD Corp UCITS — BS6A/7A/8A/9A/0A.L). Vintages 2031–2034 ' +
+      'son 100% iBonds (BulletShares no cubre esos años al inicio). Rollover táctico asume ' +
+      'continuidad de la oferta UCITS — nuevos vintages estarán disponibles a futuro.'
     );
   }
   return (
-    'Escalera de 9 vintages reales investment-grade corporativos USD: BlackRock iBonds UCITS USD Corp ' +
-    'Term ETFs Dec 2026–Dec 2034 (ID26.L–ID34.L). TTM máximo del ladder al inicio: ~8.6 años — ' +
-    'limitado a lo que existe en oferta UCITS real, sin sintéticos extendidos.'
+    'Lineup inicial: 9 vintages reales investment-grade corporativos USD — BlackRock iBonds UCITS ' +
+    'USD Corp Term ETFs Dec 2026–Dec 2034 (ID26.L–ID34.L). TTM máximo al inicio: ~8.6 años, ' +
+    'limitado a la oferta UCITS hoy disponible. Para rollover táctico durante la vida del estudio, ' +
+    'el modelo asume continuidad de la oferta UCITS (nuevos vintages con TTM ~8 años disponibles ' +
+    'al momento de reinvertir), consistente con el patrón histórico de BlackRock de lanzar nueva ' +
+    'vintage anualmente desde 2014.'
   );
 }
 
