@@ -70,7 +70,16 @@ export type ArenaJobInput = {
         maturityY: number;
         durInitY: number;
         isSynthetic: boolean;
+        /** Spread sobre curva treasury para este bullet. Si no se pasa, usa
+         * el initialSpread del payload. Usado para bullets HY (~400bp). */
+        spreadOverride?: number;
       }>;
+  /**
+   * Pesos iniciales por bullet (length = realBullets.length). Si se omite,
+   * equal-weight entre los bullets vivos. Útil cuando combinamos bullets
+   * de distinta calidad crediticia (IG + HY) con asignaciones distintas.
+   */
+  bulletInitialWeights?: ReadonlyArray<number>;
   nExtensions?: number; // default 25
   extensionSpacingY?: number; // default 1.0
   bulletTotalPct: number; // 0..1
@@ -319,6 +328,7 @@ function executeJob(id: string, payload: ArenaJobInput): {
         maturityY: b.maturityY,
         durInitY: b.durInitY,
         isSynthetic: b.isSynthetic,
+        spreadOverride: b.spreadOverride,
       }))
     : defaultBulletLineup(undefined, payload.maxBulletYears);
 
@@ -448,6 +458,7 @@ function executeJob(id: string, payload: ArenaJobInput): {
       equityMix,
       cashTicker: payload.cashTicker as Ticker,
       initialSpread: payload.initialSpread,
+      bulletInitialWeights: payload.bulletInitialWeights ?? null,
       hyWeight,
     },
     rolloverThresholds: thresholds,
