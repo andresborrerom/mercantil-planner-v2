@@ -113,6 +113,9 @@ export type PlanAlloc = {
   bullets: number; // fracción strategic (0..1)
   equity: number;
   cash: number;
+  /** OPCIONAL: Activos Reales. Default 0 cuando no se pasa. Suma con bullets
+   *  + equity + cash debe ser 1. */
+  realAssets?: number;
 };
 
 export type CashFlowMarket = {
@@ -142,6 +145,14 @@ export type CashFlowState = {
    * rollover; se vende ANTES que los bullets en cascada de pago.
    */
   hyAum: Float64Array | null;
+  /**
+   * OPCIONAL: AUM del sleeve "Activos Reales" (RWO + IEI + IXC blended).
+   * null cuando realAssetsPct=0 (default, comportamiento previo preservado).
+   * Cuando no es null, length = nSims. Es su propio sleeve (no parte de
+   * bullets), aparece en sleevePath como 4ª columna cuando está activo.
+   * En cascada de pago se vende ANTES que HY/bullets (después de equity).
+   */
+  realAssetsAum: Float64Array | null;
 
   loanBalance: Float64Array;
   loanPaymentPerMonth: Float64Array;
@@ -220,6 +231,11 @@ export function initializeState(input: {
    */
   initialHyAum?: number;
   /**
+   * Si > 0, inicializa state.realAssetsAum con este monto. Sleeve 4
+   * (Activos Reales). Si no se pasa o es 0, realAssetsAum queda en null.
+   */
+  initialRealAssetsAum?: number;
+  /**
    * AUM inicial total para inicializar cost basis tracker (initialAum + aportes
    * acumulados). Si no se pasa, costBasisTotal queda null (modelo legacy,
    * paridad Python).
@@ -268,6 +284,12 @@ export function initializeState(input: {
     hyAum.fill(input.initialHyAum);
   }
 
+  let realAssetsAum: Float64Array | null = null;
+  if (input.initialRealAssetsAum !== undefined && input.initialRealAssetsAum > 0) {
+    realAssetsAum = new Float64Array(nSims);
+    realAssetsAum.fill(input.initialRealAssetsAum);
+  }
+
   let costBasisTotal: Float64Array | null = null;
   if (input.initialAumForCostBasis !== undefined && input.initialAumForCostBasis > 0) {
     costBasisTotal = new Float64Array(nSims);
@@ -281,6 +303,7 @@ export function initializeState(input: {
     equityAum,
     bulletAums,
     hyAum,
+    realAssetsAum,
     loanBalance: new Float64Array(nSims),
     loanPaymentPerMonth: new Float64Array(nSims),
     loanRateMonthly: new Float64Array(nSims),
@@ -296,15 +319,17 @@ export function initializeState(input: {
   };
 }
 
-/** AUM bruto per sim (no resta loan_balance). Incluye HY si está presente. */
+/** AUM bruto per sim (no resta loan_balance). Incluye HY y Real Assets si presentes. */
 export function totalAum(state: CashFlowState, out?: Float64Array): Float64Array {
   const dst = out ?? new Float64Array(state.nSims);
   const hy = state.hyAum;
+  const ra = state.realAssetsAum;
   for (let s = 0; s < state.nSims; s++) {
     let bSum = 0;
     const off = s * state.nBullets;
     for (let b = 0; b < state.nBullets; b++) bSum += state.bulletAums[off + b];
-    dst[s] = state.cashAum[s] + state.equityAum[s] + bSum + (hy ? hy[s] : 0);
+    dst[s] = state.cashAum[s] + state.equityAum[s] + bSum
+      + (hy ? hy[s] : 0) + (ra ? ra[s] : 0);
   }
   return dst;
 }
@@ -491,6 +516,13 @@ export function cashflowStep(input: CashFlowStepInput): CashFlowStepLog {
         state.equityAum[s] -= fromEquity;
         needed -= fromEquity;
 
+        // Cascada: real assets entre equity y HY (liquidez similar a equity)
+        if (state.realAssetsAum && needed > 0) {
+          const fromRA = Math.min(needed, state.realAssetsAum[s]);
+          state.realAssetsAum[s] -= fromRA;
+          needed -= fromRA;
+        }
+
         if (state.hyAum && needed > 0) {
           const fromHy = Math.min(needed, state.hyAum[s]);
           state.hyAum[s] -= fromHy;
@@ -617,9 +649,9 @@ export function cashflowStep(input: CashFlowStepInput): CashFlowStepLog {
 
       let needed = pmt;
 
-      // Cascada cash → equity → HY (si existe) → bullet[shortest]
-      // HY se vende a precio de mercado (perpetual ETF, sin par convergence)
-      // antes que los bullets — proteger los bullets largos primero.
+      // Cascada cash → equity → real assets (si existe) → HY (si existe)
+      // → bullet[shortest]. Real assets entre equity y HY: liquidez similar
+      // a equity pero distinta clase. HY antes que bullets (sin par convergence).
       const fromCash = Math.min(needed, state.cashAum[s]);
       state.cashAum[s] -= fromCash;
       needed -= fromCash;
@@ -628,6 +660,12 @@ export function cashflowStep(input: CashFlowStepInput): CashFlowStepLog {
       state.equityAum[s] -= fromEquity;
       needed -= fromEquity;
       fromEquityArr[s] = fromEquity;
+
+      if (state.realAssetsAum && needed > 0) {
+        const fromRA = Math.min(needed, state.realAssetsAum[s]);
+        state.realAssetsAum[s] -= fromRA;
+        needed -= fromRA;
+      }
 
       if (state.hyAum && needed > 0) {
         const fromHy = Math.min(needed, state.hyAum[s]);
@@ -729,8 +767,10 @@ export function cashflowStep(input: CashFlowStepInput): CashFlowStepLog {
         `cashflowStep: planAlloc.cash=${planAlloc.cash} no deja espacio para bullets/equity`,
       );
     }
+    const raPlan = planAlloc.realAssets ?? 0;
     const bulletShareNorm = planAlloc.bullets / nonCash;
     const equityShareNorm = planAlloc.equity / nonCash;
+    const raShareNorm = raPlan / nonCash;
 
     let nRebalanced = 0;
     const excessLog: number[] = [];
@@ -738,6 +778,7 @@ export function cashflowStep(input: CashFlowStepInput): CashFlowStepLog {
       const excess = state.cashAum[s] - cashBandUpper * totals[s];
       let toEquity = excess * equityShareNorm;
       let toBulletsTotal = excess * bulletShareNorm;
+      let toRealAssets = excess * raShareNorm;
 
       if (enforceCap) {
         // Cap la porción a equity al headroom restante (eqtyMaxAum − peso vivo).
@@ -775,6 +816,13 @@ export function cashflowStep(input: CashFlowStepInput): CashFlowStepLog {
         for (let b = 0; b < nBullets; b++) state.bulletAums[bOff + b] += each;
       }
       state.equityAum[s] += toEquity;
+      if (state.realAssetsAum && toRealAssets > 0) {
+        state.realAssetsAum[s] += toRealAssets;
+      } else if (toRealAssets > 0) {
+        // raShareNorm > 0 pero realAssetsAum es null — el caller no inicializó
+        // el sleeve. Redirigir a equity como fallback seguro (no perder cash).
+        state.equityAum[s] += toRealAssets;
+      }
       state.cashAum[s] -= excess;
 
       excessLog.push(excess);
