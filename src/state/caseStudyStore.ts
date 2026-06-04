@@ -65,19 +65,22 @@ export type CaseStudyConfig = {
    */
   equityMix: ReadonlyArray<{ ticker: string; weight: number }>;
   /**
-   * Mix interno del sleeve "renta fija" (bullets). Dos componentes:
-   *  - iBonds: ladder iBonds UCITS USD Corp IG (defined-maturity)
+   * Mix interno del sleeve "renta fija" (bullets). Tres componentes:
+   *  - iBonds: ladder iBonds UCITS USD Corp IG (9 vintages Dec 2026–2034)
+   *  - iBonds-HY: mini-ladder iBonds UCITS USD HY Corp (2 vintages: IU28 Dec 2028,
+   *    IU29 Dec 2029). Oferta UCITS confirmada de BlackRock lanzada Oct 2025.
    *  - GHYG: iShares Global HY Corp UCITS ETF (perpetual)
    *
-   * Pesos normalizan al envío (suma puede ser >1 o <1 en draft del UI).
-   * El componente HY se opera diferente del ladder IG:
-   *  - No tiene vencimientos naturales (no entra al rollover táctico)
-   *  - Se vende ANTES que bullets en cascada de pago (cash → equity → HY → bullets)
-   *  - Compounding con returns observados de GHYG (modelo híbrido del bootstrap)
+   * Pesos normalizan al envío. Los 3 componentes operan distinto:
+   *  - iBonds IG: ladder convencional, rollover táctico A/B/C
+   *  - iBonds HY: bullets defined-maturity con spread HY (~400bp). Cuando IU28/29
+   *    vencen, principal se reinvierte en GHYG (no hay vintages HY UCITS más allá
+   *    de 2029 a fecha actual).
+   *  - GHYG: perpetual, no rollover. Se vende antes que bullets en cascada.
    *
-   * Default: iBonds 100%, GHYG 0% — preserva el comportamiento TBSC inicial.
+   * Default: iBonds 100%, resto 0% — preserva comportamiento TBSC inicial.
    */
-  bulletMix: ReadonlyArray<{ ticker: 'iBonds' | 'GHYG'; weight: number }>;
+  bulletMix: ReadonlyArray<{ ticker: 'iBonds' | 'iBonds-HY' | 'GHYG'; weight: number }>;
   /**
    * Override de la tasa inicial del DPF1Y baseline (decimal anual, e.g.,
    * 0.0525 = 5.25%). Útil cuando el cliente trae una oferta concreta del
@@ -174,6 +177,7 @@ export const DEFAULT_CASE_CONFIG: CaseStudyConfig = {
   ],
   bulletMix: [
     { ticker: 'iBonds', weight: 1 },
+    { ticker: 'iBonds-HY', weight: 0 },
     { ticker: 'GHYG', weight: 0 },
   ],
   allInFeeBps: 0,
@@ -209,15 +213,36 @@ export function configToJobInput(
     weight: m.weight / totalW,
   }));
 
-  // Normaliza bulletMix. Default si vacío o suma=0: 100% iBonds.
+  // Normaliza bulletMix. Tres componentes:
+  //  - iBonds IG ladder
+  //  - iBonds-HY mini-ladder (IU28/IU29)
+  //  - GHYG perpetual (hyWeight)
+  let wIG = 1;
+  let wIBondsHY = 0;
   let hyWeight = 0;
   const bulletTotalW = config.bulletMix.reduce((s, m) => s + m.weight, 0);
   if (bulletTotalW > 0) {
-    const hyEntry = config.bulletMix.find((m) => m.ticker === 'GHYG');
-    hyWeight = hyEntry ? hyEntry.weight / bulletTotalW : 0;
+    const igEntry = config.bulletMix.find((m) => m.ticker === 'iBonds');
+    const iBondsHyEntry = config.bulletMix.find((m) => m.ticker === 'iBonds-HY');
+    const ghygEntry = config.bulletMix.find((m) => m.ticker === 'GHYG');
+    wIG = igEntry ? igEntry.weight / bulletTotalW : 0;
+    wIBondsHY = iBondsHyEntry ? iBondsHyEntry.weight / bulletTotalW : 0;
+    hyWeight = ghygEntry ? ghygEntry.weight / bulletTotalW : 0;
   }
   // Clamp por seguridad — el motor lanza si está fuera de [0,1]
+  wIG = Math.max(0, Math.min(1, wIG));
+  wIBondsHY = Math.max(0, Math.min(1, wIBondsHY));
   hyWeight = Math.max(0, Math.min(1, hyWeight));
+  // Renormalize por si los clamps cambian la suma (defensivo)
+  const sLad = wIG + wIBondsHY + hyWeight;
+  if (sLad > 0) {
+    wIG /= sLad; wIBondsHY /= sLad; hyWeight /= sLad;
+  } else {
+    wIG = 1; // fallback seguro
+  }
+  // El ladder (IG + iBondsHY) excluye el componente perpetual (GHYG).
+  // bulletInitialWeights se construye proporcional sobre los bullets del ladder.
+  const ladderWeight = wIG + wIBondsHY;
   // Lineup INICIAL explícito: solo iBonds UCITS reales (Dec 2026 – Dec 2034).
   // Estos son los productos que el cliente offshore PUEDE COMPRAR HOY en el
   // mercado UCITS. NO se incluyen sintéticos en el lineup inicial — no hay
@@ -234,12 +259,20 @@ export function configToJobInput(
   // realidad operativa (el cliente puede comprar nuevos vintages a futuro).
   const today = new Date(2026, 4, 15); // 2026-05-15 — anclado al lineup TBSC
   const dec15 = (y: number) => new Date(y, 11, 15);
-  let ucitsRealBullets: Array<{
+  // Bullets reales del ladder. Puede mezclar IG y HY si el usuario activa
+  // iBonds-HY en el mix. Cada bullet trae su spreadOverride (HY → 400bp).
+  // bulletInitialWeights asigna la proporción IG vs HY del ladder.
+  type BulletEntry = {
     name: string;
     maturityY: number;
     durInitY: number;
     isSynthetic: boolean;
-  }> = [];
+    spreadOverride?: number;
+    /** Peso interno del ladder de IG (suma 1) — se multiplica por wIG después */
+    isIG: boolean;
+  };
+  let ucitsRealBullets: BulletEntry[] = [];
+  // 1. IG ladder — iBonds USD Corp Dec 2026-2034
   for (let v = 2026; v <= 2034; v++) {
     const mY = monthsBetween(today, dec15(v)) / 12;
     if (mY <= 0) continue;
@@ -248,7 +281,27 @@ export function configToJobInput(
       maturityY: mY,
       durInitY: mY * 0.93,
       isSynthetic: false,
+      isIG: true,
     });
+  }
+  // 2. HY ladder — iBonds USD HY Corp IU28 (Dec 2028), IU29 (Dec 2029).
+  //    Solo se incluye en el lineup cuando el usuario activó iBonds-HY en el mix.
+  //    Spread HY típico: 400bp. Duration init slightly menor (HY corp tiene
+  //    coupons más altos → modified duration ~0.85 × maturity vs IG ~0.93).
+  if (wIBondsHY > 0) {
+    const HY_SPREAD = 0.04; // 400bp típico HY corp
+    for (const v of [2028, 2029]) {
+      const mY = monthsBetween(today, dec15(v)) / 12;
+      if (mY <= 0) continue;
+      ucitsRealBullets.push({
+        name: `IU${(v % 100).toString().padStart(2, '0')}`,
+        maturityY: mY,
+        durInitY: mY * 0.85,
+        isSynthetic: false,
+        spreadOverride: HY_SPREAD,
+        isIG: false,
+      });
+    }
   }
   // Cap de duración: filtra el lineup inicial a vintages con maturity ≤ maxBulletYears.
   // Con max=1y solo ID26 (~0.58y al 2026-05-15) sobrevive — el rollover engine cubre
@@ -265,8 +318,30 @@ export function configToJobInput(
     }
     ucitsRealBullets = filtered;
   }
+  // bulletInitialWeights: asigna AUM per-bullet del ladder en proporción al mix.
+  // - bullets IG: cada uno recibe (wIG / nIG) del peso total del ladder
+  // - bullets HY iBonds: cada uno recibe (wIBondsHY / nIBondsHY) del peso total
+  // Cuando wIBondsHY=0, no hay bullets HY → weights = uniformes sobre los IG.
+  // El motor normaliza internamente.
+  const nIG = ucitsRealBullets.filter((b) => b.isIG).length;
+  const nHY = ucitsRealBullets.filter((b) => !b.isIG).length;
+  const bulletInitialWeights = ladderWeight > 0
+    ? ucitsRealBullets.map((b) =>
+        b.isIG
+          ? (nIG > 0 ? wIG / nIG : 0)
+          : (nHY > 0 ? wIBondsHY / nHY : 0),
+      )
+    : ucitsRealBullets.map(() => 1 / Math.max(ucitsRealBullets.length, 1));
+
+  // Strip el helper field `isIG` antes de mandar al worker (no es parte de la API)
+  const realBulletsForWorker = ucitsRealBullets.map(({ isIG: _isIG, ...rest }) => {
+    void _isIG;
+    return rest;
+  });
+
   return {
-    realBullets: ucitsRealBullets,
+    realBullets: realBulletsForWorker,
+    bulletInitialWeights,
     // 25 sintéticos para rollover futuro (asunción razonable de continuidad
     // de la oferta UCITS). Cobertura efectiva post-vencimientos hasta ~34y.
     // Coherente con horizonte default 20y del caso TBSC.

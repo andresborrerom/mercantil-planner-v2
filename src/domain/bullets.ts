@@ -54,6 +54,13 @@ export interface BulletDef {
   readonly durInitY: number;
   readonly isSynthetic: boolean;
   readonly ytmOverride?: number;
+  /**
+   * Spread sobre la curva treasury para ESTE bullet (decimal). Si no se
+   * pasa, usa el `initialSpread` del config (típicamente IG ~110bp).
+   * Usado para bullets HY (~400bp) que conviven con bullets IG en el
+   * mismo ladder. Ver iBonds HY UCITS (IU28/IU29).
+   */
+  readonly spreadOverride?: number;
 }
 
 /**
@@ -311,11 +318,15 @@ export function computeBulletReturns(input: ComputeBulletReturnsInput): ComputeB
         const durPrev = durState[b];
         const cv = convexityFromDur(durPrev);
 
-        const ytmPrev = interpCurve(prevCurve, mPrev) + initialSpread;
-        const ytmCurveOnly = interpCurve(newCurve, mPrev) + initialSpread;
+        // Per-bullet spread: IG bullets usan initialSpread (~110bp), HY bullets
+        // como IU28/IU29 usan spreadOverride (~400bp). Fix por bullet, no varía
+        // en el path.
+        const bSpread = bullets[b].spreadOverride ?? initialSpread;
+        const ytmPrev = interpCurve(prevCurve, mPrev) + bSpread;
+        const ytmCurveOnly = interpCurve(newCurve, mPrev) + bSpread;
         // Usamos max(mNew, 0.001) para evitar interpolar fuera del rango cuando el bullet está casi vencido
         const mNewClamped = mNew > 0.001 ? mNew : 0.001;
-        const ytmT = interpCurve(newCurve, mNewClamped) + initialSpread;
+        const ytmT = interpCurve(newCurve, mNewClamped) + bSpread;
 
         const dyTotal = ytmT - ytmPrev;
         const dyCurve = ytmCurveOnly - ytmPrev;

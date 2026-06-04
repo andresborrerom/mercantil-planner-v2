@@ -1061,7 +1061,7 @@ export default function CaseStudyPanel() {
               Renta fija — mix interno
             </div>
             <BulletMixSelector
-              value={config.bulletMix as { ticker: 'iBonds' | 'GHYG'; weight: number }[]}
+              value={config.bulletMix as { ticker: 'iBonds' | 'iBonds-HY' | 'GHYG'; weight: number }[]}
               onChange={(next) => setConfig({ bulletMix: next })}
             />
           </div>
@@ -2711,18 +2711,30 @@ function SleevesDetailPanel({ config }: { config: CaseStudyConfig }) {
         no a nivel ticker individual.
       </p>
 
-      <div className="space-y-2">
-        {/* SLEEVE BULLETS */}
-        <details className="rounded border border-mercantil-line dark:border-mercantil-dark-line">
-          <summary className="px-4 py-3 cursor-pointer flex items-center justify-between bg-mercantil-bg-soft/30">
-            <span className="flex items-center gap-2">
-              <span className="inline-block w-3 h-3 rounded-sm" style={{ background: '#003566' }} />
-              <strong className="text-mercantil-ink dark:text-mercantil-dark-ink">Sleeve Bullets</strong>
-              <span className="text-xs text-mercantil-slate dark:text-mercantil-dark-slate">
-                {bulletAumPct}% del AUM · ladder {bulletIssuerLabel}
+      <div className="space-y-3">
+        {/* SLEEVE BULLETS — diseño mejorado con left-border accent + gradient summary */}
+        <details className="group rounded-lg border border-mercantil-line dark:border-mercantil-dark-line overflow-hidden bg-white dark:bg-mercantil-dark-panel transition-shadow hover:shadow-md">
+          <summary
+            className="px-4 py-3.5 cursor-pointer flex items-start justify-between gap-3 list-none border-l-4"
+            style={{
+              borderLeftColor: '#003566',
+              background: 'linear-gradient(90deg, rgba(0,53,102,0.06) 0%, transparent 35%)',
+            }}
+          >
+            <span className="flex items-baseline gap-2.5 flex-wrap min-w-0">
+              <strong className="text-sm text-mercantil-ink dark:text-mercantil-dark-ink whitespace-nowrap">
+                Sleeve Bullets
+              </strong>
+              <span className="text-xs text-mercantil-slate dark:text-mercantil-dark-slate font-medium tabular-nums">
+                {bulletAumPct}% del AUM
+              </span>
+              <span className="text-xs text-mercantil-slate/70 dark:text-mercantil-dark-slate/70">
+                · ladder {bulletIssuerLabel}
               </span>
             </span>
-            <span className="text-xs text-mercantil-orange">click para detalle ▾</span>
+            <span className="text-xs text-mercantil-orange whitespace-nowrap flex-shrink-0 transition-transform group-open:rotate-180">
+              ▾
+            </span>
           </summary>
           <div className="px-4 pb-4 pt-2 text-sm space-y-3">
             <p>
@@ -2734,20 +2746,34 @@ function SleevesDetailPanel({ config }: { config: CaseStudyConfig }) {
 
             {(() => {
               const ig = config.bulletMix.find((m) => m.ticker === 'iBonds')?.weight ?? 0;
-              const hy = config.bulletMix.find((m) => m.ticker === 'GHYG')?.weight ?? 0;
-              const tot = ig + hy;
+              const iby = config.bulletMix.find((m) => m.ticker === 'iBonds-HY')?.weight ?? 0;
+              const ghyg = config.bulletMix.find((m) => m.ticker === 'GHYG')?.weight ?? 0;
+              const tot = ig + iby + ghyg;
               const wIG = tot > 0 ? ig / tot : 1;
-              const wHY = tot > 0 ? hy / tot : 0;
-              if (wHY < 1e-9) return null;
+              const wIBondsHY = tot > 0 ? iby / tot : 0;
+              const wGHYG = tot > 0 ? ghyg / tot : 0;
+              if (wIBondsHY < 1e-9 && wGHYG < 1e-9) return null;
               return (
-                <div className="rounded border border-amber-200 dark:border-amber-700/40 bg-amber-50 dark:bg-amber-900/10 p-2">
-                  <div className="font-semibold text-mercantil-ink dark:text-mercantil-dark-ink text-xs uppercase tracking-wider mb-1">
+                <div className="rounded border border-amber-200 dark:border-amber-700/40 bg-amber-50 dark:bg-amber-900/10 p-2.5">
+                  <div className="font-semibold text-mercantil-ink dark:text-mercantil-dark-ink text-xs uppercase tracking-wider mb-1.5">
                     Mix interno renta fija
                   </div>
-                  <ul className="text-xs space-y-0.5">
+                  <ul className="text-xs space-y-1">
                     <li>• <strong>Ladder IG (iBonds UCITS)</strong>: {Math.round(wIG * 100)}% del sleeve · {(wIG * config.bulletTotalPct * 100).toFixed(1)}% del AUM</li>
-                    <li>• <strong>HY perpetual (GHYG)</strong>: {Math.round(wHY * 100)}% del sleeve · {(wHY * config.bulletTotalPct * 100).toFixed(1)}% del AUM</li>
-                    <li className="text-mercantil-slate/70 dark:text-mercantil-dark-slate/70 italic">GHYG no tiene vencimientos: compounding con retornos observados del ETF. En cascada de pago se vende ANTES que los bullets reales. Para los rollover táctico A/B/C, solo aplica al ladder IG.</li>
+                    {wIBondsHY > 1e-9 && (
+                      <li>• <strong>Ladder HY (iBonds IU28+IU29)</strong>: {Math.round(wIBondsHY * 100)}% del sleeve · {(wIBondsHY * config.bulletTotalPct * 100).toFixed(1)}% del AUM
+                        <span className="block text-[11px] text-mercantil-slate dark:text-mercantil-dark-slate ml-3 mt-0.5">
+                          Spread modelado: 400bp típico HY. Solo 2 vintages disponibles (BlackRock lanzó la familia Oct 2025). Cuando vencen, principal se reinvierte en GHYG si está activo, o en bullets IG sintéticos.
+                        </span>
+                      </li>
+                    )}
+                    {wGHYG > 1e-9 && (
+                      <li>• <strong>HY perpetual (GHYG)</strong>: {Math.round(wGHYG * 100)}% del sleeve · {(wGHYG * config.bulletTotalPct * 100).toFixed(1)}% del AUM
+                        <span className="block text-[11px] text-mercantil-slate dark:text-mercantil-dark-slate ml-3 mt-0.5">
+                          Sin vencimientos. Compounding con retornos observados del ETF. En cascada de pago se vende ANTES que los bullets reales. Rollover táctico A/B/C solo aplica al ladder IG.
+                        </span>
+                      </li>
+                    )}
                   </ul>
                 </div>
               );
@@ -2825,17 +2851,29 @@ function SleevesDetailPanel({ config }: { config: CaseStudyConfig }) {
           </div>
         </details>
 
-        {/* SLEEVE EQUITY */}
-        <details className="rounded border border-mercantil-line dark:border-mercantil-dark-line">
-          <summary className="px-4 py-3 cursor-pointer flex items-center justify-between bg-mercantil-bg-soft/30">
-            <span className="flex items-center gap-2">
-              <span className="inline-block w-3 h-3 rounded-sm" style={{ background: '#F58220' }} />
-              <strong className="text-mercantil-ink dark:text-mercantil-dark-ink">Sleeve Equity</strong>
-              <span className="text-xs text-mercantil-slate dark:text-mercantil-dark-slate">
-                {equityAumPct}% del AUM · {equityMixSummary} · banda [{eqtyMin}%, {eqtyMax}%]
+        {/* SLEEVE EQUITY — diseño mejorado */}
+        <details className="group rounded-lg border border-mercantil-line dark:border-mercantil-dark-line overflow-hidden bg-white dark:bg-mercantil-dark-panel transition-shadow hover:shadow-md">
+          <summary
+            className="px-4 py-3.5 cursor-pointer flex items-start justify-between gap-3 list-none border-l-4"
+            style={{
+              borderLeftColor: '#F58220',
+              background: 'linear-gradient(90deg, rgba(245,130,32,0.07) 0%, transparent 35%)',
+            }}
+          >
+            <span className="flex items-baseline gap-2.5 flex-wrap min-w-0">
+              <strong className="text-sm text-mercantil-ink dark:text-mercantil-dark-ink whitespace-nowrap">
+                Sleeve Equity
+              </strong>
+              <span className="text-xs text-mercantil-slate dark:text-mercantil-dark-slate font-medium tabular-nums">
+                {equityAumPct}% del AUM
+              </span>
+              <span className="text-xs text-mercantil-slate/70 dark:text-mercantil-dark-slate/70">
+                · {equityMixSummary} · banda [{eqtyMin}%, {eqtyMax}%]
               </span>
             </span>
-            <span className="text-xs text-mercantil-orange">click para detalle ▾</span>
+            <span className="text-xs text-mercantil-orange whitespace-nowrap flex-shrink-0 transition-transform group-open:rotate-180">
+              ▾
+            </span>
           </summary>
           <div className="px-4 pb-4 pt-2 text-sm space-y-3">
             <p>
@@ -2969,16 +3007,28 @@ function SleevesDetailPanel({ config }: { config: CaseStudyConfig }) {
         </details>
 
         {/* SLEEVE CASH */}
-        <details className="rounded border border-mercantil-line dark:border-mercantil-dark-line">
-          <summary className="px-4 py-3 cursor-pointer flex items-center justify-between bg-mercantil-bg-soft/30">
-            <span className="flex items-center gap-2">
-              <span className="inline-block w-3 h-3 rounded-sm" style={{ background: '#888' }} />
-              <strong className="text-mercantil-ink dark:text-mercantil-dark-ink">Sleeve Cash</strong>
-              <span className="text-xs text-mercantil-slate dark:text-mercantil-dark-slate">
-                {cashAumPct}% del AUM · BIL (T-Bills 1–3m) · target {(config.cashBandUpper * 100).toFixed(0)}%
+        <details className="group rounded-lg border border-mercantil-line dark:border-mercantil-dark-line overflow-hidden bg-white dark:bg-mercantil-dark-panel transition-shadow hover:shadow-md">
+          <summary
+            className="px-4 py-3.5 cursor-pointer flex items-start justify-between gap-3 list-none border-l-4"
+            style={{
+              borderLeftColor: '#6B7280',
+              background: 'linear-gradient(90deg, rgba(107,114,128,0.07) 0%, transparent 35%)',
+            }}
+          >
+            <span className="flex items-baseline gap-2.5 flex-wrap min-w-0">
+              <strong className="text-sm text-mercantil-ink dark:text-mercantil-dark-ink whitespace-nowrap">
+                Sleeve Cash
+              </strong>
+              <span className="text-xs text-mercantil-slate dark:text-mercantil-dark-slate font-medium tabular-nums">
+                {cashAumPct}% del AUM
+              </span>
+              <span className="text-xs text-mercantil-slate/70 dark:text-mercantil-dark-slate/70">
+                · BIL (T-Bills 1–3m) · target {(config.cashBandUpper * 100).toFixed(0)}%
               </span>
             </span>
-            <span className="text-xs text-mercantil-orange">click para detalle ▾</span>
+            <span className="text-xs text-mercantil-orange whitespace-nowrap flex-shrink-0 transition-transform group-open:rotate-180">
+              ▾
+            </span>
           </summary>
           <div className="px-4 pb-4 pt-2 text-sm space-y-3">
             <p>
