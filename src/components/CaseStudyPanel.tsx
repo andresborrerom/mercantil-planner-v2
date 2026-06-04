@@ -880,68 +880,27 @@ export default function CaseStudyPanel() {
             )}
           </div>
 
-          {/* Issuer del ladder + residencia fiscal del cliente. Decisión
-              OPERATIVA — el motor matemático modela iBonds y BulletShares
-              UCITS como equivalentes (mismo curve + spread + duration decay,
-              empíricamente correlación 0.99 y diff <5bp). La diferencia es
-              issuer risk, AUM por ETF y vintages disponibles. */}
+          {/* Residencia fiscal del cliente. El ladder en sí queda fijo a
+              iShares iBonds UCITS USD Corp (2026–2034) — BulletShares UCITS
+              quedó excluido porque es IG-only, distributing y solo cubre
+              hasta 2030. */}
           <div className="pt-2 border-t border-mercantil-line dark:border-mercantil-dark-line space-y-2">
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-              <label className="flex flex-col text-xs">
-                <span className="font-medium text-mercantil-slate dark:text-mercantil-dark-slate mb-1">
-                  Issuer del ladder
-                  <span className="ml-1 text-mercantil-slate/60 dark:text-mercantil-dark-slate/60 font-normal">
-                    (decisión operativa, no afecta motor matemático)
-                  </span>
+            <label className="flex flex-col text-xs">
+              <span className="font-medium text-mercantil-slate dark:text-mercantil-dark-slate mb-1">
+                Residencia fiscal del cliente
+                <span className="ml-1 text-mercantil-slate/60 dark:text-mercantil-dark-slate/60 font-normal">
+                  (filtra opciones de ETFs)
                 </span>
-                <select
-                  value={config.bulletIssuer}
-                  onChange={(e) => setConfig({ bulletIssuer: e.target.value as typeof config.bulletIssuer })}
-                  className="px-2 py-1 rounded border border-mercantil-line dark:border-mercantil-dark-line bg-white dark:bg-mercantil-dark-panel text-mercantil-ink dark:text-mercantil-dark-ink text-sm"
-                >
-                  <option value="iBonds">iBonds UCITS (BlackRock) — 2026-2034 + sintéticos</option>
-                  <option value="bulletshares-ucits">BulletShares UCITS (Invesco) — 2026-2030</option>
-                  <option value="split-50-50">Split 50/50 iBonds + BulletShares (donde aplique)</option>
-                </select>
-              </label>
-              <label className="flex flex-col text-xs">
-                <span className="font-medium text-mercantil-slate dark:text-mercantil-dark-slate mb-1">
-                  Residencia fiscal del cliente
-                  <span className="ml-1 text-mercantil-slate/60 dark:text-mercantil-dark-slate/60 font-normal">
-                    (filtra opciones de ETFs)
-                  </span>
-                </span>
-                <select
-                  value={config.clientResidency}
-                  onChange={(e) => setConfig({ clientResidency: e.target.value as typeof config.clientResidency })}
-                  className="px-2 py-1 rounded border border-mercantil-line dark:border-mercantil-dark-line bg-white dark:bg-mercantil-dark-panel text-mercantil-ink dark:text-mercantil-dark-ink text-sm"
-                >
-                  <option value="offshore">Offshore (non-US Person) — solo UCITS</option>
-                  <option value="us-resident">US-resident / US Person — UCITS + US-registered</option>
-                </select>
-              </label>
-            </div>
-            {config.bulletIssuer !== 'iBonds' && config.horizonMonths > 60 && (
-              <p className="text-[11px] text-amber-700 dark:text-amber-300 italic">
-                ⚠ BulletShares UCITS USD Corp solo cubre vintages 2026–2030 (5 años desde hoy). Para horizontes
-                {' '}más largos, las vintages 2031+ se modelan como bullets sintéticos extendidos. AUM por ETF
-                {' '}entre US$15M y US$37M — significativamente menor que iBonds UCITS. Ver disclaimer correspondiente
-                {' '}en el PDF del entregable.
-              </p>
-            )}
-            {config.bulletIssuer === 'bulletshares-ucits' && (
-              <p className="text-[11px] text-mercantil-slate dark:text-mercantil-dark-slate italic">
-                Esta opción reemplaza completamente iBonds por BulletShares UCITS para vintages 2026–2030.
-                Útil para diversificar issuer risk fuera de BlackRock o cuando el comité del cliente prefiere
-                explícitamente la familia Invesco.
-              </p>
-            )}
-            {config.bulletIssuer === 'split-50-50' && (
-              <p className="text-[11px] text-mercantil-slate dark:text-mercantil-dark-slate italic">
-                Cada vintage 2026–2030 se compra mitad iBonds + mitad BulletShares UCITS (diversificación
-                issuer risk). Vintages 2031+ siguen 100% iBonds (BulletShares no cubre esos años hoy).
-              </p>
-            )}
+              </span>
+              <select
+                value={config.clientResidency}
+                onChange={(e) => setConfig({ clientResidency: e.target.value as typeof config.clientResidency })}
+                className="px-2 py-1 rounded border border-mercantil-line dark:border-mercantil-dark-line bg-white dark:bg-mercantil-dark-panel text-mercantil-ink dark:text-mercantil-dark-ink text-sm"
+              >
+                <option value="offshore">Offshore (non-US Person) — solo UCITS</option>
+                <option value="us-resident">US-resident / US Person — UCITS + US-registered</option>
+              </select>
+            </label>
           </div>
         </fieldset>
 
@@ -2219,27 +2178,15 @@ function SleevesDetailPanel({ config }: { config: CaseStudyConfig }) {
   // el bloque custom — descripción, categoría, proxies y caveats salen de ahí.
   const catalog = useEquityCatalogByTicker();
 
-  // Issuer del ladder — controla la descripción del sleeve bullets de forma
-  // dinámica (igual que el mix de equity controla la del sleeve equity).
-  // Se selecciona en el panel arriba (clientResidency + bulletIssuer).
-  const bulletIssuerLabel = (() => {
-    if (config.bulletIssuer === 'iBonds') return 'iBonds UCITS (BlackRock)';
-    if (config.bulletIssuer === 'bulletshares-ucits') return 'BulletShares UCITS (Invesco)';
-    if (config.bulletIssuer === 'split-50-50') return 'Split 50/50 iBonds + BulletShares';
-    return 'iBonds UCITS';
-  })();
-  const isDefaultIssuer = config.bulletIssuer === 'iBonds';
-  const ladderProviderText = (() => {
-    if (config.bulletIssuer === 'bulletshares-ucits') {
-      return 'Escalera basada en Invesco BulletShares USD Corporate UCITS — vintages 2026–2030 (BS6A/BS7A/BS8A/BS9A/BS0A.L). Cobertura actual del lineup UCITS llega hasta 2030. Vintages posteriores se modelan como sintéticos extendidos (continuación paramétrica).';
-    }
-    if (config.bulletIssuer === 'split-50-50') {
-      return 'Escalera con split issuer 50/50 — vintages 2026–2030 mitad iShares iBonds UCITS USD Corp, mitad Invesco BulletShares USD Corp UCITS (BS6A/7A/8A/9A/0A.L). Vintages 2031–2034 son 100% iBonds (BulletShares no cubre esos años). Sin sintéticos extendidos: la oferta UCITS real no llega más allá de 2034.';
-    }
-    return 'Lineup inicial: 9 vintages reales investment-grade corporativos USD — BlackRock iBonds UCITS USD Corp Term ETFs Dec 2026–Dec 2034 (ID26.L–ID34.L). Inicialización equal-weight (~11% del sleeve por bullet). TTM máximo al inicio: ~8.6 años, limitado a la oferta UCITS hoy disponible. Es el motor de carry estable del portafolio. Para rollover táctico durante la simulación, el modelo asume continuidad de la oferta UCITS — nuevos vintages con TTM ~8y estarán disponibles cuando llegue el momento de reinvertir (consistente con el patrón histórico de BlackRock de lanzar nueva vintage anualmente desde 2014).';
-  })();
+  // Ladder fijo a iShares iBonds UCITS USD Corp — único issuer ofrecido.
+  // BulletShares UCITS quedó excluido (IG-only, distributing, cobertura
+  // hasta 2030 solamente). El motor matemático opera paramétricamente
+  // sobre el ladder; los tickers concretos son decisión operativa.
+  const bulletIssuerLabel = 'iBonds UCITS (BlackRock)';
+  const ladderProviderText =
+    'Lineup inicial: 9 vintages reales investment-grade corporativos USD — BlackRock iBonds UCITS USD Corp Term ETFs Dec 2026–Dec 2034 (ID26.L–ID34.L). Inicialización equal-weight (~11% del sleeve por bullet). TTM máximo al inicio: ~8.6 años, limitado a la oferta UCITS hoy disponible. Es el motor de carry estable del portafolio. Para rollover táctico durante la simulación, el modelo asume continuidad de la oferta UCITS — nuevos vintages con TTM ~8y estarán disponibles cuando llegue el momento de reinvertir (consistente con el patrón histórico de BlackRock de lanzar nueva vintage anualmente desde 2014).';
   const residencyNote = config.clientResidency === 'us-resident'
-    ? 'Cliente US-resident — selección elegible adicional: US BulletShares Corp IG (BSCQ-BSCZ) y munis si se activa el toggle correspondiente. Estate tax US-situs no es problema (exención US$13M).'
+    ? 'Cliente US-resident — selección elegible adicional: munis si se activa el toggle correspondiente. Estate tax US-situs no es problema (exención US$13M). El ladder ofrecido sigue siendo iBonds UCITS por simplicidad operativa.'
     : 'Cliente offshore (non-US Person) — solo UCITS por defecto. Si se elige US-registered en el dropdown, aplica withholding 30% sobre distribuciones + estate tax US-situs (exención US$60k). Ver Apéndice fiscal del PDF.';
 
   return (
@@ -2280,20 +2227,12 @@ function SleevesDetailPanel({ config }: { config: CaseStudyConfig }) {
               <div className="font-semibold text-mercantil-ink dark:text-mercantil-dark-ink text-xs uppercase tracking-wider mb-1">
                 Diversificación interna por plazo
               </div>
-              {isDefaultIssuer ? (
-                <ul className="text-xs space-y-0.5">
-                  <li>• <strong>Corto</strong> (&lt;3y) — 3 bullets ID26/27/28 → 33.3% del ladder, {(0.333 * config.bulletTotalPct * 100).toFixed(1)}% del AUM</li>
-                  <li>• <strong>Medio</strong> (3–6y) — 3 bullets ID29/30/31 → 33.3% del ladder, {(0.333 * config.bulletTotalPct * 100).toFixed(1)}% del AUM</li>
-                  <li>• <strong>Largo</strong> (6–9y) — 3 bullets ID32/33/34 → 33.3% del ladder, {(0.333 * config.bulletTotalPct * 100).toFixed(1)}% del AUM</li>
-                  <li className="text-mercantil-slate/70 dark:text-mercantil-dark-slate/70 italic">Sin tramo extra-largo en el lineup inicial — la oferta UCITS no incluye vintages &gt;2034 hoy. Vintages futuros (rollover) se modelan asumiendo continuidad de la oferta con TTM ~8y.</li>
-                </ul>
-              ) : (
-                <p className="text-xs italic text-mercantil-slate dark:text-mercantil-dark-slate">
-                  Distribución por plazo equivalente al lineup iBonds default: ~27% corto (&lt;3y), ~27% medio (3–6y),
-                  ~27% largo (6–9y), ~18% extra-largo (9–11y). Cuando el issuer es {bulletIssuerLabel}, los tickers
-                  específicos cambian pero la estructura de plazos se conserva equal-weight.
-                </p>
-              )}
+              <ul className="text-xs space-y-0.5">
+                <li>• <strong>Corto</strong> (&lt;3y) — 3 bullets ID26/27/28 → 33.3% del ladder, {(0.333 * config.bulletTotalPct * 100).toFixed(1)}% del AUM</li>
+                <li>• <strong>Medio</strong> (3–6y) — 3 bullets ID29/30/31 → 33.3% del ladder, {(0.333 * config.bulletTotalPct * 100).toFixed(1)}% del AUM</li>
+                <li>• <strong>Largo</strong> (6–9y) — 3 bullets ID32/33/34 → 33.3% del ladder, {(0.333 * config.bulletTotalPct * 100).toFixed(1)}% del AUM</li>
+                <li className="text-mercantil-slate/70 dark:text-mercantil-dark-slate/70 italic">Sin tramo extra-largo en el lineup inicial — la oferta UCITS no incluye vintages &gt;2034 hoy. Vintages futuros (rollover) se modelan asumiendo continuidad de la oferta con TTM ~8y.</li>
+              </ul>
             </div>
 
             <div>

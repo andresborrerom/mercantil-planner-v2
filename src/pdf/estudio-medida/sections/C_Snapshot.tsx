@@ -119,7 +119,7 @@ export function SnapshotSection({ state }: Props) {
 
       <View style={styles.section}>
         <Text style={styles.sectionTitle}>Asignación estratégica</Text>
-        <Row label="Issuer del ladder" value={issuerLabel(config.bulletIssuer)} />
+        <Row label="Issuer del ladder" value="iBonds UCITS (BlackRock) — 2026-2034 + sintéticos" />
         <Row label="Renta fija (escalera bonos)" value={fmtPct(config.bulletTotalPct, 0)} />
         <Row label="Renta variable" value={fmtPct(config.equityPct, 0)} />
         <Row label="Cash" value={fmtPct(config.cashPct, 0)} />
@@ -160,13 +160,6 @@ function bucketLabel(b: string): string {
   if (b === 'longevity') return 'Longevidad (largo plazo)';
   if (b === 'legacy') return 'Legado (multi-generacional)';
   return b;
-}
-
-function issuerLabel(i: string): string {
-  if (i === 'iBonds') return 'iBonds UCITS (BlackRock) — 2026-2034 + sintéticos';
-  if (i === 'bulletshares-ucits') return 'BulletShares UCITS (Invesco) — 2026-2030';
-  if (i === 'split-50-50') return 'Split 50/50 iBonds + BulletShares (donde aplique)';
-  return i;
 }
 
 function residencyLabel(r: string): string {
