@@ -571,25 +571,57 @@ export default function CaseStudyPanel() {
     return ust1y + config.initialSpread;
   }, [config.initialSpread]);
 
-  // Medianas pre-computadas por variante guardada (mes a mes).
-  // Memo separado para no recomputar al cambiar inflows del config actual.
-  const variantMedians = useMemo<Record<string, number[]>>(() => {
-    const out: Record<string, number[]> = {};
+  // Bandas pre-computadas por variante guardada (mes a mes), respetando
+  // los toggles current (returnView, valuationMode). Cada variante guarda
+  // su result COMPLETO (aumPath/aumPathHTM/inflationIndexPath) — recomputamos
+  // sus bandas según el modo de visualización actual para que el cliente
+  // siempre vea "peras con peras" en la comparación.
+  //
+  // Performance: O(8 variantes × 5000 sims × sort × 241 meses) ≈ 100ms por
+  // recompute. Se recomputa al cambiar variants o toggles.
+  const variantBands = useMemo<Record<string, {
+    p5: number[]; p25: number[]; p50: number[]; p75: number[]; p95: number[];
+  }>>(() => {
+    const out: Record<string, { p5: number[]; p25: number[]; p50: number[]; p75: number[]; p95: number[] }> = {};
+    const isReal = returnView === 'real';
+    const isHtm = valuationMode === 'htm';
     for (const v of savedVariants) {
       const { nSims, horizonMonths } = v.result.meta;
       const Hp1 = horizonMonths + 1;
+      // Pick the right source path based on toggles. The variant has all 4
+      // combinations available via its stored aumPath / aumPathHTM /
+      // inflationIndexPath.
+      const basePath = isHtm ? v.result.aumPathHTM : v.result.aumPath;
+      let pathToUse: Float64Array = basePath;
+      if (isReal) {
+        const idx = v.result.inflationIndexPath;
+        const deflated = new Float64Array(basePath.length);
+        for (let i = 0; i < basePath.length; i++) {
+          const f = idx[i] || 1;
+          deflated[i] = basePath[i] / f;
+        }
+        pathToUse = deflated;
+      }
+      const p5: number[] = [];
+      const p25: number[] = [];
+      const p50: number[] = [];
+      const p75: number[] = [];
+      const p95: number[] = [];
       const col = new Float64Array(nSims);
-      const series: number[] = [];
       for (let t = 0; t < Hp1; t++) {
-        for (let s = 0; s < nSims; s++) col[s] = v.result.aumPath[s * Hp1 + t];
+        for (let s = 0; s < nSims; s++) col[s] = pathToUse[s * Hp1 + t];
         const sorted = Float64Array.from(col);
         sorted.sort();
-        series.push(sorted[Math.floor(0.5 * (nSims - 1))] / 1e6);
+        p5.push(sorted[Math.floor(0.05 * (nSims - 1))] / 1e6);
+        p25.push(sorted[Math.floor(0.25 * (nSims - 1))] / 1e6);
+        p50.push(sorted[Math.floor(0.5 * (nSims - 1))] / 1e6);
+        p75.push(sorted[Math.floor(0.75 * (nSims - 1))] / 1e6);
+        p95.push(sorted[Math.floor(0.95 * (nSims - 1))] / 1e6);
       }
-      out[v.id] = series;
+      out[v.id] = { p5, p25, p50, p75, p95 };
     }
     return out;
-  }, [savedVariants]);
+  }, [savedVariants, returnView, valuationMode]);
 
   // ---- Chart data (memo: solo recomputa cuando cambia result, config o variantes) ----
   // Bands se guardan como tuplas [lower, upper] para que recharts pinte solo
@@ -746,10 +778,26 @@ export default function CaseStudyPanel() {
         point.dpfBand5095 = [dpfBaselineBands.p5[t], dpfBaselineBands.p95[t]];
         point.dpfBand2575 = [dpfBaselineBands.p25[t], dpfBaselineBands.p75[t]];
       }
-      // Overlay: mediana de cada variante guardada (si esa variante cubre el mes t)
+      // Overlay: fan chart completo de cada variante guardada (mediana + bandas).
+      // Las bandas se computan respetando los toggles Real/Nominal y MtM/HTM para
+      // que la comparación sea siempre "peras con peras" (la variante usa SU
+      // propio result.aumPath/HTM/inflationIndexPath con su seed original; el
+      // toggle cambia qué slice del result se muestra).
       for (const v of savedVariants) {
-        const m = variantMedians[v.id]?.[t];
+        const bands = variantBands[v.id];
+        if (!bands) continue;
+        const m = bands.p50[t];
+        const p5v = bands.p5[t];
+        const p95v = bands.p95[t];
+        const p25v = bands.p25[t];
+        const p75v = bands.p75[t];
         if (m !== undefined) point[`v_${v.id}`] = m;
+        if (p5v !== undefined && p95v !== undefined) {
+          point[`v_${v.id}_b5095`] = [p5v, p95v];
+        }
+        if (p25v !== undefined && p75v !== undefined) {
+          point[`v_${v.id}_b2575`] = [p25v, p75v];
+        }
       }
       data.push(point);
       // Inflow del mes t se acumula DESPUÉS de capturar el deposit del mes t,
@@ -759,7 +807,7 @@ export default function CaseStudyPanel() {
       }
     }
     return data;
-  }, [result, config.inflowBaseAnnual, config.inflowGrowth, savedVariants, variantMedians, dpfBaselineBands, returnView, viewEvaluation]);
+  }, [result, config.inflowBaseAnnual, config.inflowGrowth, savedVariants, variantBands, dpfBaselineBands, returnView, viewEvaluation]);
 
   // Referencia simple: capital inicial es la única línea horizontal del chart.
   const initialAumM = result ? result.stats.initialAum / 1e6 : 0;
@@ -1772,13 +1820,36 @@ export default function CaseStudyPanel() {
                     name={valuationMode === 'htm' ? 'Mediana — a vencimiento' : 'Mediana — a mercado'}
                     isAnimationActive={false}
                   />
-                  {/* Overlay de medianas de variantes guardadas, solo las
-                       que están visibles (checkbox marcado). Default: primera
-                       (ancla) + última visible; el medio queda oculto hasta
-                       que el usuario marque a mano. */}
-                  {savedVariants.filter((v) => v.visible).map((v) => (
+                  {/* Overlay de fan chart completo de variantes guardadas:
+                       bandas p5-p95 (90%) + p25-p75 (50%) + mediana. Solo
+                       las visibles (checkbox marcado). Default: primera
+                       (ancla) + última visible. Bandas con fillOpacity baja
+                       para no saturar visual con varias variantes overlay. */}
+                  {savedVariants.filter((v) => v.visible).flatMap((v) => [
+                    <Area
+                      key={`${v.id}-b5095`}
+                      type="monotone"
+                      dataKey={`v_${v.id}_b5095`}
+                      stroke="none"
+                      fill={v.color}
+                      fillOpacity={0.08}
+                      name={`${v.label} — p5–p95`}
+                      isAnimationActive={false}
+                      legendType="none"
+                    />,
+                    <Area
+                      key={`${v.id}-b2575`}
+                      type="monotone"
+                      dataKey={`v_${v.id}_b2575`}
+                      stroke="none"
+                      fill={v.color}
+                      fillOpacity={0.15}
+                      name={`${v.label} — p25–p75`}
+                      isAnimationActive={false}
+                      legendType="none"
+                    />,
                     <Line
-                      key={v.id}
+                      key={`${v.id}-median`}
                       type="monotone"
                       dataKey={`v_${v.id}`}
                       stroke={v.color}
@@ -1787,8 +1858,8 @@ export default function CaseStudyPanel() {
                       name={v.label}
                       isAnimationActive={false}
                       connectNulls
-                    />
-                  ))}
+                    />,
+                  ])}
                   {/* Serie deposit: capital inicial + aportes acumulados mes a mes.
                        Es una línea creciente (no horizontal) que arranca en el
                        capital y sube por cada inflow. */}
