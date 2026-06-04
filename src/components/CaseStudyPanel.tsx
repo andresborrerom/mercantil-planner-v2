@@ -37,6 +37,7 @@ import { getYieldBounds } from '../domain/bootstrap';
 import RangeSlider from './RangeSlider';
 import EquityMixSelector from './EquityMixSelector';
 import BulletMixSelector from './BulletMixSelector';
+import RealAssetsMixSelector from './RealAssetsMixSelector';
 import EstudioMedidaActions from './EstudioMedidaActions';
 import { useEquityCatalogByTicker } from '../hooks/useEquityMeta';
 import { useTTMPanel } from '../hooks/useTTMPanel';
@@ -482,7 +483,7 @@ export default function CaseStudyPanel() {
   }, [result]);
 
   // ---- Validación de allocation ----
-  const allocSum = config.bulletTotalPct + config.equityPct + config.cashPct;
+  const allocSum = config.bulletTotalPct + config.equityPct + config.cashPct + config.realAssetsPct;
   const allocValid = Math.abs(allocSum - 1) < 1e-6;
 
   // Track el config que produjo el `result` actual. Lo seteamos justo
@@ -1039,9 +1040,9 @@ export default function CaseStudyPanel() {
         {/* --- Allocation --- */}
         <fieldset className="space-y-2">
           <legend className="text-xs uppercase tracking-wider text-mercantil-slate dark:text-mercantil-dark-slate font-medium">
-            Allocation estratégico (las 3 primeras deben sumar 100%)
+            Allocation estratégico (los 4 sleeves deben sumar 100%)
           </legend>
-          <div className="grid grid-cols-3 gap-3">
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
             <NumInput
               label="Ladder (bullets)"
               value={config.bulletTotalPct * 100}
@@ -1060,6 +1061,16 @@ export default function CaseStudyPanel() {
               max={100}
               suffix="%"
               hint="mix configurable abajo"
+            />
+            <NumInput
+              label="Activos reales"
+              value={config.realAssetsPct * 100}
+              onChange={(v) => setConfig({ realAssetsPct: v / 100 })}
+              step={1}
+              min={0}
+              max={100}
+              suffix="%"
+              hint="anti-inflación · mix abajo"
             />
             <NumInput
               label="Cash (BIL)"
@@ -1113,6 +1124,20 @@ export default function CaseStudyPanel() {
               onChange={(next) => setConfig({ bulletMix: next })}
             />
           </div>
+
+          {/* Mix interno del sleeve de Activos Reales. Solo visible cuando
+              realAssetsPct > 0 (sleeve activado en allocation). */}
+          {config.realAssetsPct > 0 && (
+            <div className="pt-2 border-t border-mercantil-line dark:border-mercantil-dark-line">
+              <div className="text-xs uppercase tracking-wider text-mercantil-slate dark:text-mercantil-dark-slate font-medium mb-2">
+                Activos reales — mix interno (anti-inflación)
+              </div>
+              <RealAssetsMixSelector
+                value={config.realAssetsMix as { ticker: 'RWO' | 'IEI' | 'IXC'; weight: number }[]}
+                onChange={(next) => setConfig({ realAssetsMix: next })}
+              />
+            </div>
+          )}
 
           {/* Mix custom del sleeve de equity. Default = USMV 50% / SCHD 50%
               (el del entregable). El selector expone el catálogo completo
@@ -3076,6 +3101,74 @@ function SleevesDetailPanel({ config }: { config: CaseStudyConfig }) {
             </div>
           </div>
         </details>
+
+        {/* SLEEVE ACTIVOS REALES (4to sleeve, opcional) — solo se muestra si activado */}
+        {config.realAssetsPct > 0 && (() => {
+          const raPct = (config.realAssetsPct * 100).toFixed(0);
+          const mixTot = config.realAssetsMix.reduce((s, m) => s + m.weight, 0);
+          const wRWO = mixTot > 0 ? (config.realAssetsMix.find((m) => m.ticker === 'RWO')?.weight ?? 0) / mixTot : 0;
+          const wIEI = mixTot > 0 ? (config.realAssetsMix.find((m) => m.ticker === 'IEI')?.weight ?? 0) / mixTot : 0;
+          const wIXC = mixTot > 0 ? (config.realAssetsMix.find((m) => m.ticker === 'IXC')?.weight ?? 0) / mixTot : 0;
+          return (
+            <details className="group rounded-lg border border-mercantil-line dark:border-mercantil-dark-line overflow-hidden bg-white dark:bg-mercantil-dark-panel transition-shadow hover:shadow-md">
+              <summary
+                className="px-4 py-3.5 cursor-pointer flex items-start justify-between gap-3 list-none border-l-4"
+                style={{
+                  borderLeftColor: '#0d9488',
+                  background: 'linear-gradient(90deg, rgba(13,148,136,0.07) 0%, transparent 35%)',
+                }}
+              >
+                <span className="flex items-baseline gap-2.5 flex-wrap min-w-0">
+                  <strong className="text-sm text-mercantil-ink dark:text-mercantil-dark-ink whitespace-nowrap">
+                    Sleeve Activos Reales
+                  </strong>
+                  <span className="text-xs text-mercantil-slate dark:text-mercantil-dark-slate font-medium tabular-nums">
+                    {raPct}% del AUM
+                  </span>
+                  <span className="text-xs text-mercantil-slate/70 dark:text-mercantil-dark-slate/70">
+                    · RWO {Math.round(wRWO * 100)}% · IEI {Math.round(wIEI * 100)}% · IXC {Math.round(wIXC * 100)}%
+                  </span>
+                </span>
+                <span className="text-xs text-mercantil-orange whitespace-nowrap flex-shrink-0 transition-transform group-open:rotate-180">
+                  ▾
+                </span>
+              </summary>
+              <div className="px-4 pb-4 pt-2 text-sm space-y-3">
+                <p>
+                  Sleeve de <strong>anti-inflación</strong> con activos reales. Composición actual blendea exposición a real estate
+                  (RWO), duration intermedia con proxy de TIPS sintético (IEI) y commodities reales (IXC). Cuando el toggle
+                  "Vista condicional de inflación" está activo, este sleeve ayuda a entender cómo se comporta el portafolio
+                  en escenarios de inflación elevada.
+                </p>
+                <div className="rounded border border-teal-200 dark:border-teal-700/40 bg-teal-50 dark:bg-teal-900/10 p-2.5">
+                  <div className="font-semibold text-mercantil-ink dark:text-mercantil-dark-ink text-xs uppercase tracking-wider mb-1.5">
+                    Composición y rol operativo
+                  </div>
+                  <ul className="text-xs space-y-1">
+                    <li>• <strong>RWO ({Math.round(wRWO * 100)}%)</strong>: REITs globales — real estate con rentas tied-to-inflation. Vol ~15-20%, sensible a tasas (drag cuando suben).</li>
+                    <li>• <strong>IEI ({Math.round(wIEI * 100)}%)</strong>: Treasury 3-7y — <em>proxy de TIPS sintético</em>. MVP: usamos esta serie real del bootstrap. PR follow-up agregará TIPS UCITS (ITPS) desde EODHD.</li>
+                    <li>• <strong>IXC ({Math.round(wIXC * 100)}%)</strong>: Energy global — <em>proxy de commodities reales</em>. MVP: usamos energy como exposición a inflación commodity-driven. PR follow-up: Gold (SGLN), Infrastructure (INFR).</li>
+                  </ul>
+                </div>
+                <div className="rounded border border-amber-200 dark:border-amber-700/40 bg-amber-50 dark:bg-amber-900/10 p-2.5">
+                  <div className="font-semibold text-mercantil-ink dark:text-mercantil-dark-ink text-xs uppercase tracking-wider mb-1.5">
+                    Reglas operativas del sleeve
+                  </div>
+                  <ul className="text-xs space-y-1">
+                    <li>• <strong>Cascada de pago</strong>: en stress (préstamo/venta), el sleeve se vende ANTES que HY y bullets — orden: cash → equity → activos reales → HY → bullets[shortest]. Tiene liquidez similar a equity.</li>
+                    <li>• <strong>Sin rollover táctico</strong>: no participa de los regímenes A/B/C (esos operan sobre el ladder IG).</li>
+                    <li>• <strong>Rebalanceo</strong>: cuando el exceso de cash supera la banda, una proporción regresa a este sleeve según el target % en la allocation.</li>
+                  </ul>
+                </div>
+                <p className="text-xs italic text-mercantil-slate dark:text-mercantil-dark-slate">
+                  <strong>MVP scope</strong>: 3 componentes con data real existente del bootstrap (RWO real, IEI y IXC como proxies). En PR
+                  follow-up agregaremos TIPS UCITS (ITPS), Gold UCITS (SGLN) e Infrastructure UCITS (INFR) desde EODHD para una
+                  composición más fiel a "real assets" de un endowment institucional.
+                </p>
+              </div>
+            </details>
+          );
+        })()}
 
         {/* SLEEVE CASH */}
         <details className="group rounded-lg border border-mercantil-line dark:border-mercantil-dark-line overflow-hidden bg-white dark:bg-mercantil-dark-panel transition-shadow hover:shadow-md">
