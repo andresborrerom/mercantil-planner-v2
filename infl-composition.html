@@ -1,0 +1,250 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8" />
+<title>INFL — Composición (Horizon Kinetics Inflation Beneficiaries ETF)</title>
+<style>
+  :root {
+    --ink: #1a1f2e;
+    --slate: #5b6577;
+    --line: #e3e6ec;
+    --bg: #fbfbfa;
+    --panel: #ffffff;
+    --orange: #ee7820;
+    --land: #c97a4a;
+    --metals: #d4a13a;
+    --mining: #6b8e7a;
+    --exchanges: #4a6fa5;
+    --utilities: #8e7aa5;
+    --agro: #7a9a4a;
+    --other: #b8bcc4;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: var(--bg); color: var(--ink); }
+  .wrap { max-width: 1180px; margin: 0 auto; padding: 32px 24px 64px; }
+  h1 { font-size: 22px; margin: 0 0 4px; font-weight: 600; }
+  .sub { font-size: 13px; color: var(--slate); margin-bottom: 6px; }
+  .asof { font-size: 11px; color: var(--slate); margin-bottom: 24px; font-style: italic; }
+  .row { display: grid; grid-template-columns: 1fr 1fr; gap: 24px; margin-bottom: 24px; }
+  .card { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 20px 22px; }
+  .card h2 { font-size: 14px; margin: 0 0 4px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em; color: var(--ink); }
+  .card .desc { font-size: 11px; color: var(--slate); margin-bottom: 16px; }
+  .chart-wrap { display: flex; gap: 20px; align-items: center; }
+  .donut { flex-shrink: 0; }
+  .legend { font-size: 12px; flex: 1; }
+  .legend .row-item { display: grid; grid-template-columns: 14px 1fr auto; gap: 10px; align-items: center; padding: 4px 0; border-bottom: 1px dashed var(--line); }
+  .legend .row-item:last-child { border-bottom: none; }
+  .swatch { width: 12px; height: 12px; border-radius: 2px; }
+  .pct { font-variant-numeric: tabular-nums; font-weight: 600; }
+  .holdings { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 20px 22px; }
+  .holdings h2 { font-size: 14px; margin: 0 0 4px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em; }
+  .holdings .desc { font-size: 11px; color: var(--slate); margin-bottom: 14px; }
+  table { width: 100%; border-collapse: collapse; font-size: 12px; }
+  th { text-align: left; font-weight: 600; padding: 8px 6px; border-bottom: 1px solid var(--line); color: var(--slate); font-size: 11px; text-transform: uppercase; letter-spacing: 0.04em; }
+  td { padding: 7px 6px; border-bottom: 1px solid var(--line); }
+  td.num { text-align: right; font-variant-numeric: tabular-nums; }
+  td.bar-cell { width: 80px; padding-right: 0; }
+  .bar { height: 8px; background: var(--orange); border-radius: 2px; }
+  .tag { display: inline-block; font-size: 10px; padding: 2px 8px; border-radius: 10px; color: white; font-weight: 500; }
+  .tag.land { background: var(--land); }
+  .tag.metals { background: var(--metals); }
+  .tag.mining { background: var(--mining); }
+  .tag.exchanges { background: var(--exchanges); }
+  .tag.utilities { background: var(--utilities); }
+  .tag.agro { background: var(--agro); }
+  .footer { margin-top: 24px; font-size: 11px; color: var(--slate); }
+  .footer a { color: var(--orange); }
+  .callout { background: #fff7ed; border-left: 3px solid var(--orange); padding: 14px 18px; border-radius: 0 6px 6px 0; margin-bottom: 24px; font-size: 13px; line-height: 1.55; }
+  .callout strong { color: var(--ink); }
+  .residual-note { font-size: 11px; color: var(--slate); margin-top: 10px; font-style: italic; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>INFL — Horizon Kinetics Inflation Beneficiaries ETF</h1>
+  <div class="sub">Composición por sector y geografía · Top 20 holdings (77.3% del fondo)</div>
+  <div class="asof">Fuente: stockanalysis.com · as-of 2026-06-02. Sector y geografía derivados holding-por-holding del top 20; el ~23% restante (31 holdings menores) va en categoría "Otros".</div>
+
+  <div class="callout">
+    <strong>Filosofía del fondo.</strong> INFL no es un fondo de "commodities" puro. Es un equity activamente gestionado de ~51 empresas <strong>asset-light</strong> que se benefician estructuralmente de inflación: <strong>royalty &amp; streaming</strong> (recibe regalías sin asumir capex), <strong>land owners</strong> (Permian land + water), <strong>exchanges</strong> (revenue sube con volatilidad), y selectos productores de uranio, LNG y agro. NO compra commodities directos ni futuros.
+  </div>
+
+  <div class="row">
+    <!-- SECTOR DONUT -->
+    <div class="card">
+      <h2>Por sector</h2>
+      <div class="desc">Clasificación funcional según modelo de negocio (no GICS — el GICS los tiraría todos a Energy/Financials, ocultando la lógica del fondo)</div>
+      <div class="chart-wrap">
+        <svg class="donut" width="200" height="200" viewBox="0 0 200 200">
+          <!-- Donut slices: cx=100 cy=100 r_outer=90 r_inner=55 -->
+          <!-- Computed below -->
+          <g id="sector-slices"></g>
+          <circle cx="100" cy="100" r="55" fill="var(--panel)" />
+          <text x="100" y="95" text-anchor="middle" font-size="11" fill="var(--slate)">Top 20</text>
+          <text x="100" y="112" text-anchor="middle" font-size="16" font-weight="600" fill="var(--ink)">77.3%</text>
+        </svg>
+        <div class="legend">
+          <div class="row-item"><span class="swatch" style="background:var(--land)"></span><span>Land &amp; royalty (oil, gas, water)</span><span class="pct">31.9%</span></div>
+          <div class="row-item"><span class="swatch" style="background:var(--exchanges)"></span><span>Exchanges (asset-light fin. infra)</span><span class="pct">15.2%</span></div>
+          <div class="row-item"><span class="swatch" style="background:var(--metals)"></span><span>Precious metals royalty/streaming</span><span class="pct">14.7%</span></div>
+          <div class="row-item"><span class="swatch" style="background:var(--mining)"></span><span>Mining &amp; energy producers</span><span class="pct">9.5%</span></div>
+          <div class="row-item"><span class="swatch" style="background:var(--utilities)"></span><span>Utilities</span><span class="pct">3.0%</span></div>
+          <div class="row-item"><span class="swatch" style="background:var(--agro)"></span><span>Agricultura (Bunge)</span><span class="pct">2.7%</span></div>
+          <div class="row-item"><span class="swatch" style="background:var(--other)"></span><span>Otros 31 holdings menores</span><span class="pct">22.9%</span></div>
+        </div>
+      </div>
+      <div class="residual-note">Total ≠ "Financial Services 28.8%" reportado por proveedor: bajo clasificación GICS las royalty companies y exchanges quedan agrupados como Financials, oscureciendo que el fondo es 50%+ real assets.</div>
+    </div>
+
+    <!-- GEOGRAPHY DONUT -->
+    <div class="card">
+      <h2>Por geografía</h2>
+      <div class="desc">País de incorporación de cada holding (no de operación — Wheaton es Canadá pero opera global)</div>
+      <div class="chart-wrap">
+        <svg class="donut" width="200" height="200" viewBox="0 0 200 200">
+          <g id="geo-slices"></g>
+          <circle cx="100" cy="100" r="55" fill="var(--panel)" />
+          <text x="100" y="95" text-anchor="middle" font-size="11" fill="var(--slate)">Top 20</text>
+          <text x="100" y="112" text-anchor="middle" font-size="16" font-weight="600" fill="var(--ink)">77.3%</text>
+        </svg>
+        <div class="legend">
+          <div class="row-item"><span class="swatch" style="background:#2c5282"></span><span>USA</span><span class="pct">39.1%</span></div>
+          <div class="row-item"><span class="swatch" style="background:#c53030"></span><span>Canadá</span><span class="pct">26.9%</span></div>
+          <div class="row-item"><span class="swatch" style="background:#dd6b20"></span><span>Singapur (SGX)</span><span class="pct">3.5%</span></div>
+          <div class="row-item"><span class="swatch" style="background:#38a169"></span><span>Brasil (Bunge)</span><span class="pct">2.7%</span></div>
+          <div class="row-item"><span class="swatch" style="background:#553c9a"></span><span>Alemania (Deutsche Börse)</span><span class="pct">2.6%</span></div>
+          <div class="row-item"><span class="swatch" style="background:#2b6cb0"></span><span>Reino Unido (Glencore)</span><span class="pct">2.2%</span></div>
+          <div class="row-item"><span class="swatch" style="background:var(--other)"></span><span>Otros 31 holdings menores</span><span class="pct">22.9%</span></div>
+        </div>
+      </div>
+      <div class="residual-note">Nota: el factsheet reporta <strong>US ~47.5%</strong> a nivel fondo completo, lo que implica que la mayoría del 23% residual está incorporada en USA. Canadá real ≈ 28–30%.</div>
+    </div>
+  </div>
+
+  <!-- HOLDINGS TABLE -->
+  <div class="holdings">
+    <h2>Top 20 holdings — el detalle</h2>
+    <div class="desc">Posiciones individuales con país y categoría sectorial funcional</div>
+    <table>
+      <thead>
+        <tr>
+          <th>#</th>
+          <th>Ticker</th>
+          <th>Compañía</th>
+          <th>País</th>
+          <th>Sector</th>
+          <th style="text-align:right">Peso</th>
+          <th class="bar-cell"></th>
+        </tr>
+      </thead>
+      <tbody id="holdings-body"></tbody>
+    </table>
+  </div>
+
+  <div class="footer">
+    Fuentes:
+    <a href="https://stockanalysis.com/etf/infl/holdings/" target="_blank">stockanalysis.com (holdings + weights, as-of 2026-06-02)</a> ·
+    <a href="https://horizonkinetics.com/products/etf/infl/" target="_blank">horizonkinetics.com (issuer)</a> ·
+    <a href="https://seekingalpha.com/symbol/INFL/holdings" target="_blank">seekingalpha.com (aggregate US 47.5%, Fin Svcs 28.8%)</a><br>
+    Clasificación sectorial funcional propia (Mercantil SFI). GICS oficial agrupa estas mismas posiciones como Financials/Energy/Materials.
+  </div>
+</div>
+
+<script>
+  // Donut chart helper
+  function buildDonut(slices, svgId, cx, cy, rOuter, rInner) {
+    let cumA = -Math.PI / 2; // start at top
+    const g = document.getElementById(svgId);
+    const total = slices.reduce((s, x) => s + x.pct, 0);
+    for (const slice of slices) {
+      const a = (slice.pct / total) * 2 * Math.PI;
+      const a1 = cumA;
+      const a2 = cumA + a;
+      cumA = a2;
+      const largeArc = a > Math.PI ? 1 : 0;
+      const x1o = cx + rOuter * Math.cos(a1);
+      const y1o = cy + rOuter * Math.sin(a1);
+      const x2o = cx + rOuter * Math.cos(a2);
+      const y2o = cy + rOuter * Math.sin(a2);
+      const x1i = cx + rInner * Math.cos(a2);
+      const y1i = cy + rInner * Math.sin(a2);
+      const x2i = cx + rInner * Math.cos(a1);
+      const y2i = cy + rInner * Math.sin(a1);
+      const d = [
+        'M', x1o, y1o,
+        'A', rOuter, rOuter, 0, largeArc, 1, x2o, y2o,
+        'L', x1i, y1i,
+        'A', rInner, rInner, 0, largeArc, 0, x2i, y2i,
+        'Z'
+      ].join(' ');
+      const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+      path.setAttribute('d', d);
+      path.setAttribute('fill', slice.color);
+      path.setAttribute('stroke', '#fff');
+      path.setAttribute('stroke-width', '1');
+      g.appendChild(path);
+    }
+  }
+
+  const sectorSlices = [
+    { pct: 31.86, color: 'var(--land)' },
+    { pct: 15.20, color: 'var(--exchanges)' },
+    { pct: 14.73, color: 'var(--metals)' },
+    { pct: 9.54, color: 'var(--mining)' },
+    { pct: 3.02, color: 'var(--utilities)' },
+    { pct: 2.71, color: 'var(--agro)' },
+    { pct: 22.94, color: 'var(--other)' }
+  ];
+  const geoSlices = [
+    { pct: 39.12, color: '#2c5282' },
+    { pct: 26.94, color: '#c53030' },
+    { pct: 3.47, color: '#dd6b20' },
+    { pct: 2.71, color: '#38a169' },
+    { pct: 2.59, color: '#553c9a' },
+    { pct: 2.23, color: '#2b6cb0' },
+    { pct: 22.94, color: 'var(--other)' }
+  ];
+  buildDonut(sectorSlices, 'sector-slices', 100, 100, 90, 55);
+  buildDonut(geoSlices, 'geo-slices', 100, 100, 90, 55);
+
+  // Holdings table
+  const holdings = [
+    { n:1, t:'LB',          c:'LandBridge Company LLC',         country:'USA',       sector:'land',       label:'Land/royalty',     pct:6.35 },
+    { n:2, t:'WPM',         c:'Wheaton Precious Metals',        country:'Canadá',    sector:'metals',     label:'Metales preciosos',pct:5.97 },
+    { n:3, t:'PSK.TO',      c:'PrairieSky Royalty',             country:'Canadá',    sector:'land',       label:'Land/royalty',     pct:5.27 },
+    { n:4, t:'WBI',         c:'WaterBridge Infrastructure',     country:'USA',       sector:'land',       label:'Land/royalty',     pct:5.01 },
+    { n:5, t:'FNV',         c:'Franco-Nevada',                  country:'Canadá',    sector:'metals',     label:'Metales preciosos',pct:4.98 },
+    { n:6, t:'VNOM',        c:'Viper Energy',                   country:'USA',       sector:'land',       label:'Land/royalty',     pct:4.95 },
+    { n:7, t:'TPL',         c:'Texas Pacific Land',             country:'USA',       sector:'land',       label:'Land/royalty',     pct:4.66 },
+    { n:8, t:'CCJ',         c:'Cameco (uranio)',                country:'Canadá',    sector:'mining',     label:'Mining',           pct:4.53 },
+    { n:9, t:'ICE',         c:'Intercontinental Exchange',      country:'USA',       sector:'exchanges',  label:'Exchange',         pct:4.12 },
+    { n:10,t:'OR.TO',       c:'OR Royalties',                   country:'Canadá',    sector:'metals',     label:'Metales preciosos',pct:3.78 },
+    { n:11,t:'S68.SI',      c:'Singapore Exchange',             country:'Singapur',  sector:'exchanges',  label:'Exchange',         pct:3.47 },
+    { n:12,t:'PBT',         c:'Permian Basin Royalty Trust',    country:'USA',       sector:'land',       label:'Land/royalty',     pct:3.21 },
+    { n:13,t:'HE',          c:'Hawaiian Electric',              country:'USA',       sector:'utilities',  label:'Utility',          pct:3.02 },
+    { n:14,t:'LNG',         c:'Cheniere Energy (LNG)',          country:'USA',       sector:'mining',     label:'Energy prod.',     pct:2.78 },
+    { n:15,t:'BG',          c:'Bunge Global (agro)',            country:'Brasil',    sector:'agro',       label:'Agricultura',      pct:2.71 },
+    { n:16,t:'DB1.DE',      c:'Deutsche Börse',                 country:'Alemania',  sector:'exchanges',  label:'Exchange',         pct:2.59 },
+    { n:17,t:'MIAX',        c:'Miami International Holdings',   country:'USA',       sector:'exchanges',  label:'Exchange',         pct:2.56 },
+    { n:18,t:'CME',         c:'CME Group',                      country:'USA',       sector:'exchanges',  label:'Exchange',         pct:2.46 },
+    { n:19,t:'TPZ.TO',      c:'Topaz Energy',                   country:'Canadá',    sector:'land',       label:'Land/royalty',     pct:2.41 },
+    { n:20,t:'GLEN.L',      c:'Glencore (mining)',              country:'UK',        sector:'mining',     label:'Mining',           pct:2.23 }
+  ];
+  const maxPct = Math.max(...holdings.map(h => h.pct));
+  const tbody = document.getElementById('holdings-body');
+  for (const h of holdings) {
+    const tr = document.createElement('tr');
+    tr.innerHTML = `
+      <td>${h.n}</td>
+      <td style="font-family:ui-monospace,SFMono-Regular,monospace;font-size:11px">${h.t}</td>
+      <td>${h.c}</td>
+      <td>${h.country}</td>
+      <td><span class="tag ${h.sector}">${h.label}</span></td>
+      <td class="num">${h.pct.toFixed(2)}%</td>
+      <td class="bar-cell"><div class="bar" style="width:${(h.pct/maxPct*100).toFixed(0)}%"></div></td>
+    `;
+    tbody.appendChild(tr);
+  }
+</script>
+</body>
+</html>
