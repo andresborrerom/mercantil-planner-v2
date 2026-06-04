@@ -1,0 +1,211 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8" />
+<title>INFL vs SPY vs Inflación realizada (CPI) — 2021-02 → 2026-04</title>
+<style>
+  :root {
+    --ink: #1a1f2e;
+    --slate: #5b6577;
+    --line: #e3e6ec;
+    --bg: #fbfbfa;
+    --panel: #ffffff;
+    --orange: #ee7820;
+    --infl: #ee7820;
+    --spy: #2c5282;
+    --cpi: #94a3b8;
+    --synth: #38a169;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: var(--bg); color: var(--ink); }
+  .wrap { max-width: 1180px; margin: 0 auto; padding: 32px 24px 64px; }
+  h1 { font-size: 22px; margin: 0 0 4px; font-weight: 600; }
+  .sub { font-size: 13px; color: var(--slate); margin-bottom: 6px; }
+  .asof { font-size: 11px; color: var(--slate); margin-bottom: 24px; font-style: italic; }
+
+  .card { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 22px 24px; margin-bottom: 16px; }
+  .card h2 { font-size: 14px; margin: 0 0 4px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em; color: var(--ink); }
+  .card .desc { font-size: 12px; color: var(--slate); margin-bottom: 16px; line-height: 1.5; }
+
+  /* Stats row */
+  .stats-row { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-bottom: 16px; }
+  .stat { padding: 12px 14px; border-radius: 8px; border-left: 4px solid; background: #fafbfc; }
+  .stat.infl { border-color: var(--infl); }
+  .stat.spy { border-color: var(--spy); }
+  .stat.cpi { border-color: var(--cpi); }
+  .stat.synth { border-color: var(--synth); }
+  .stat .label { font-size: 11px; color: var(--slate); text-transform: uppercase; letter-spacing: 0.04em; }
+  .stat .value { font-size: 22px; font-weight: 600; font-variant-numeric: tabular-nums; margin: 2px 0; }
+  .stat .desc { font-size: 11px; color: var(--slate); }
+
+  /* Chart */
+  .chart-svg { width: 100%; height: auto; display: block; }
+  .legend-row { display: flex; gap: 24px; margin-bottom: 12px; flex-wrap: wrap; font-size: 13px; }
+  .legend-row .item { display: flex; align-items: center; gap: 8px; }
+  .legend-row .swatch { width: 18px; height: 3px; border-radius: 1px; }
+
+  .callout { background: #fff7ed; border-left: 3px solid var(--orange); padding: 14px 18px; border-radius: 0 6px 6px 0; margin-bottom: 18px; font-size: 13px; line-height: 1.55; }
+  .callout strong { color: var(--ink); }
+
+  .footer { margin-top: 20px; font-size: 11px; color: var(--slate); }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>INFL vs SPY vs Inflación realizada (CPI)</h1>
+  <div class="sub">Crecimiento de $100 invertidos en 2021-02 — período completo de existencia real del ETF INFL</div>
+  <div class="asof">Fuente: CSV interno (returns) + FRED CPIAUCSL (inflación). Período 2021-02 → 2026-04 · 63 meses · Mercantil SFI</div>
+
+  <div class="callout">
+    <strong>Por qué este chart importa.</strong> Estos son los <strong>63 meses reales</strong> en los que existió el ETF INFL (lanzamiento 2021-01-11). El proxy sintético que estoy construyendo está calibrado contra esta evidencia. Es la única evidencia empírica directa que tenemos para validar que la tesis "anti-inflación" de INFL funciona en la práctica.
+  </div>
+
+  <!-- Stats summary -->
+  <div class="card">
+    <h2>Resumen del período</h2>
+    <div class="desc">CAGR anualizado de los 63 meses (2021-02 → 2026-04). Real spread sobre inflación = CAGR del activo − CPI CAGR.</div>
+    <div class="stats-row">
+      <div class="stat infl">
+        <div class="label">INFL real</div>
+        <div class="value">+17.89%</div>
+        <div class="desc">Real: +13.81% vs CPI</div>
+      </div>
+      <div class="stat spy">
+        <div class="label">SPY</div>
+        <div class="value">+13.15%</div>
+        <div class="desc">Real: +9.07% vs CPI</div>
+      </div>
+      <div class="stat cpi">
+        <div class="label">CPI (inflación realizada)</div>
+        <div class="value">+4.08%</div>
+        <div class="desc">~2× la meta Fed (2%)</div>
+      </div>
+      <div class="stat synth">
+        <div class="label">Proxy sintético</div>
+        <div class="value">+20.51%</div>
+        <div class="desc">Levemente sobre INFL real</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Main chart -->
+  <div class="card">
+    <h2>Crecimiento acumulado — $100 base = 2021-02</h2>
+    <div class="desc">Tres líneas reales (INFL, SPY, CPI) + proxy sintético como referencia (4-component basket: SPY 32.8% · IAI 25.5% · IXC 22.6% · GDX 19.1%)</div>
+    <div class="legend-row">
+      <div class="item"><span class="swatch" style="background:var(--infl)"></span><span><strong>INFL real</strong> — Horizon Kinetics Inflation Beneficiaries</span></div>
+      <div class="item"><span class="swatch" style="background:var(--spy)"></span><span><strong>SPY</strong> — S&amp;P 500 (referencia)</span></div>
+      <div class="item"><span class="swatch" style="background:var(--cpi)"></span><span><strong>CPI</strong> — Inflación realizada (FRED CPIAUCSL)</span></div>
+      <div class="item"><span class="swatch" style="background:var(--synth);height:2px;border-top:1px dashed var(--synth)"></span><span><strong>Proxy sintético</strong> — basket calibrado (dashed)</span></div>
+    </div>
+    <svg id="chart" class="chart-svg" viewBox="0 0 1100 480" preserveAspectRatio="xMinYMin meet"></svg>
+  </div>
+
+  <div class="footer">
+    Notas técnicas:
+    INFL inception 2021-01-11; primer return en el dataset = 2021-02.
+    SPY usado como referencia de "equity baseline".
+    CPI = headline CPI-U mensual, compuesto.
+    Proxy sintético = 22.56% IXC + 19.11% GDX + 25.50% IAI + 32.83% SPY, pesos NNLS sobre overlap (R² in-sample 0.82).
+  </div>
+</div>
+
+<script>
+const stats = {"period":"2021-02 → 2026-04","months":63,"inflCagr":0.1789,"spyCagr":0.1315,"cpiCagr":0.0408,"synthCagr":0.2051};
+const chartData = [{"ym":"2021-02","infl":105.8415,"spy":102.7805,"cpi":100.3503,"synth":105.8508},{"ym":"2021-03","infl":111.974,"spy":107.0959,"cpi":100.9107,"synth":109.5604},{"ym":"2021-04","infl":120.1932,"spy":113.1318,"cpi":101.5412,"synth":114.4142},{"ym":"2021-05","infl":123.3325,"spy":113.8746,"cpi":102.2417,"synth":120.7231},{"ym":"2021-06","infl":124.3704,"spy":116.0488,"cpi":102.9422,"synth":118.9156},{"ym":"2021-07","infl":125.1569,"spy":119.2708,"cpi":103.6427,"synth":119.5873},{"ym":"2021-08","infl":125.2807,"spy":122.8203,"cpi":104.2732,"synth":120.9139},{"ym":"2021-09","infl":121.0853,"spy":116.7223,"cpi":104.9037,"synth":117.8314},{"ym":"2021-10","infl":130.2497,"spy":125.3121,"cpi":105.6042,"synth":127.3049},{"ym":"2021-11","infl":123.7394,"spy":124.3052,"cpi":106.3047,"synth":123.3056},{"ym":"2021-12","infl":129.9521,"spy":129.5988,"cpi":106.7251,"synth":126.9558},{"ym":"2022-01","infl":126.954,"spy":123.1949,"cpi":107.3452,"synth":128.1176},{"ym":"2022-02","infl":131.7839,"spy":119.5585,"cpi":107.8964,"synth":130.5911},{"ym":"2022-03","infl":139.0572,"spy":123.6686,"cpi":108.5855,"synth":136.2213},{"ym":"2022-04","infl":132.6279,"spy":113.1648,"cpi":109.3434,"synth":125.7433},{"ym":"2022-05","infl":134.4233,"spy":113.4202,"cpi":110.0325,"synth":128.8252},{"ym":"2022-06","infl":119.8733,"spy":103.6199,"cpi":110.7215,"synth":114.2255},{"ym":"2022-07","infl":130.4997,"spy":113.6509,"cpi":111.1349,"synth":122.3483},{"ym":"2022-08","infl":127.1817,"spy":109.0137,"cpi":111.4795,"synth":118.9722},{"ym":"2022-09","infl":117.6225,"spy":98.5311,"cpi":111.8929,"synth":110.6786},{"ym":"2022-10","infl":128.8652,"spy":106.9769,"cpi":112.3752,"synth":122.3469},{"ym":"2022-11","infl":139.6004,"spy":112.9239,"cpi":112.7886,"synth":132.5607},{"ym":"2022-12","infl":133.3993,"spy":105.9298,"cpi":113.6155,"synth":126.0779},{"ym":"2023-01","infl":138.4422,"spy":113.1085,"cpi":113.9301,"synth":135.4854},{"ym":"2023-02","infl":129.2043,"spy":110.2647,"cpi":114.2444,"synth":128.8767},{"ym":"2023-03","infl":131.0335,"spy":113.9183,"cpi":114.5667,"synth":131.2892},{"ym":"2023-04","infl":131.3731,"spy":116.1798,"cpi":114.8852,"synth":134.4138},{"ym":"2023-05","infl":124.8726,"spy":116.7161,"cpi":115.1995,"synth":127.8763},{"ym":"2023-06","infl":130.571,"spy":123.8193,"cpi":115.5104,"synth":132.7201},{"ym":"2023-07","infl":137.4904,"spy":128.3474,"cpi":115.8212,"synth":140.5386},{"ym":"2023-08","infl":135.1412,"spy":126.2615,"cpi":116.1358,"synth":137.2929},{"ym":"2023-09","infl":130.6574,"spy":119.8496,"cpi":116.454,"synth":132.6073},{"ym":"2023-10","infl":127.6099,"spy":117.6614,"cpi":116.7724,"synth":130.2156},{"ym":"2023-11","infl":132.8467,"spy":128.409,"cpi":117.0867,"synth":141.5344},{"ym":"2023-12","infl":135.5654,"spy":133.7294,"cpi":117.4052,"synth":146.8957},{"ym":"2024-01","infl":129.7497,"spy":136.4101,"cpi":117.6403,"synth":144.4297},{"ym":"2024-02","infl":132.3775,"spy":143.5289,"cpi":117.8753,"synth":147.5688},{"ym":"2024-03","infl":140.9564,"spy":147.7634,"cpi":118.1161,"synth":159.5095},{"ym":"2024-04","infl":138.0559,"spy":142.2463,"cpi":118.3542,"synth":157.5338},{"ym":"2024-05","infl":144.1166,"spy":149.441,"cpi":118.5892,"synth":164.3274},{"ym":"2024-06","infl":142.0762,"spy":154.2158,"cpi":118.8216,"synth":163.3725},{"ym":"2024-07","infl":157.423,"spy":156.5868,"cpi":119.0539,"synth":171.8042},{"ym":"2024-08","infl":160.6835,"spy":160.2455,"cpi":119.289,"synth":174.8297},{"ym":"2024-09","infl":164.1369,"spy":163.1111,"cpi":119.5271,"synth":175.9286},{"ym":"2024-10","infl":173.4809,"spy":162.1514,"cpi":119.7648,"synth":177.415},{"ym":"2024-11","infl":186.2748,"spy":171.8211,"cpi":119.9998,"synth":187.4894},{"ym":"2024-12","infl":167.2085,"spy":167.1245,"cpi":120.2379,"synth":175.7905},{"ym":"2025-01","infl":171.6437,"spy":172.1905,"cpi":120.4477,"synth":188.2219},{"ym":"2025-02","infl":177.2378,"spy":170.0046,"cpi":120.6575,"synth":188.1535},{"ym":"2025-03","infl":179.2275,"spy":160.0506,"cpi":120.8723,"synth":188.4043},{"ym":"2025-04","infl":180.8147,"spy":159.1402,"cpi":121.0843,"synth":185.6833},{"ym":"2025-05","infl":184.2098,"spy":169.1414,"cpi":121.2941,"synth":196.2256},{"ym":"2025-06","infl":186.7743,"spy":177.3087,"cpi":121.5012,"synth":206.819},{"ym":"2025-07","infl":183.0981,"spy":181.9286,"cpi":121.7083,"synth":212.2238},{"ym":"2025-08","infl":191.2919,"spy":185.6617,"cpi":121.9181,"synth":224.3418},{"ym":"2025-09","infl":198.4047,"spy":191.7435,"cpi":122.1301,"synth":236.4986},{"ym":"2025-10","infl":192.9892,"spy":196.8584,"cpi":122.3426,"synth":235.3412},{"ym":"2025-11","infl":195.9855,"spy":197.2423,"cpi":122.5524,"synth":244.249},{"ym":"2025-12","infl":197.8112,"spy":196.818,"cpi":122.7644,"synth":246.0014},{"ym":"2026-01","infl":217.7437,"spy":200.3088,"cpi":122.9367,"synth":262.3312},{"ym":"2026-02","infl":242.4367,"spy":198.5778,"cpi":123.0803,"synth":273.6287},{"ym":"2026-03","infl":231.984,"spy":188.2579,"cpi":123.2238,"synth":262.6292},{"ym":"2026-04","infl":237.2422,"spy":191.2655,"cpi":123.3386,"synth":266.2959}];
+
+// Chart dimensions
+const W = 1100, H = 480;
+const M = { top: 30, right: 30, bottom: 50, left: 60 };
+const innerW = W - M.left - M.right;
+const innerH = H - M.top - M.bottom;
+const svg = document.getElementById('chart');
+
+// Find y-range
+const allY = chartData.flatMap(d => [d.infl, d.spy, d.cpi, d.synth]);
+const yMin = 90;
+const yMax = Math.ceil(Math.max(...allY) / 10) * 10 + 10;
+
+// Scales
+const x = (i) => M.left + (i / (chartData.length - 1)) * innerW;
+const y = (v) => M.top + innerH - ((v - yMin) / (yMax - yMin)) * innerH;
+
+// Axes
+const ns = 'http://www.w3.org/2000/svg';
+const mk = (tag, attrs) => {
+  const e = document.createElementNS(ns, tag);
+  for (const k in attrs) e.setAttribute(k, attrs[k]);
+  return e;
+};
+
+// Y gridlines + labels
+const yTicks = [];
+for (let v = Math.ceil(yMin/20)*20; v <= yMax; v += 20) yTicks.push(v);
+for (const v of yTicks) {
+  svg.appendChild(mk('line', { x1: M.left, x2: W - M.right, y1: y(v), y2: y(v), stroke: '#eaecef', 'stroke-width': 1 }));
+  svg.appendChild(mk('text', { x: M.left - 8, y: y(v) + 4, 'text-anchor': 'end', 'font-size': 11, fill: '#64748b' })).textContent = '$' + v;
+}
+
+// X-axis labels (year markers)
+const yearTicks = chartData.map((d, i) => ({ d, i })).filter(({ d }) => d.ym.endsWith('-01') || d.ym === chartData[0].ym);
+for (const { d, i } of yearTicks) {
+  svg.appendChild(mk('line', { x1: x(i), x2: x(i), y1: M.top, y2: M.top + innerH, stroke: '#f1f3f5', 'stroke-width': 1 }));
+  svg.appendChild(mk('text', { x: x(i), y: M.top + innerH + 18, 'text-anchor': 'middle', 'font-size': 11, fill: '#64748b' })).textContent = d.ym.slice(0, 4);
+}
+
+// Reference line at $100 (start)
+svg.appendChild(mk('line', { x1: M.left, x2: W - M.right, y1: y(100), y2: y(100), stroke: '#94a3b8', 'stroke-width': 1, 'stroke-dasharray': '4 4' }));
+svg.appendChild(mk('text', { x: W - M.right - 4, y: y(100) - 4, 'text-anchor': 'end', 'font-size': 10, fill: '#64748b' })).textContent = 'Base $100';
+
+// Line builder
+const buildPath = (key) => chartData.map((d, i) => `${i === 0 ? 'M' : 'L'} ${x(i).toFixed(2)} ${y(d[key]).toFixed(2)}`).join(' ');
+
+// Synthetic (dashed, drawn first so it's behind)
+svg.appendChild(mk('path', {
+  d: buildPath('synth'),
+  fill: 'none',
+  stroke: '#38a169',
+  'stroke-width': 1.5,
+  'stroke-dasharray': '5 4',
+  opacity: 0.7
+}));
+
+// CPI (gray, area-filled below for context)
+const cpiArea = chartData.map((d, i) => `${i === 0 ? 'M' : 'L'} ${x(i).toFixed(2)} ${y(d.cpi).toFixed(2)}`).join(' ');
+const cpiAreaClosed = cpiArea + ` L ${x(chartData.length - 1).toFixed(2)} ${y(yMin).toFixed(2)} L ${x(0).toFixed(2)} ${y(yMin).toFixed(2)} Z`;
+svg.appendChild(mk('path', { d: cpiAreaClosed, fill: '#cbd5e1', opacity: 0.3 }));
+svg.appendChild(mk('path', { d: buildPath('cpi'), fill: 'none', stroke: '#94a3b8', 'stroke-width': 2 }));
+
+// SPY
+svg.appendChild(mk('path', { d: buildPath('spy'), fill: 'none', stroke: '#2c5282', 'stroke-width': 2.5 }));
+
+// INFL (most prominent)
+svg.appendChild(mk('path', { d: buildPath('infl'), fill: 'none', stroke: '#ee7820', 'stroke-width': 3 }));
+
+// End-of-period labels
+const last = chartData[chartData.length - 1];
+const lastX = x(chartData.length - 1);
+const labelPairs = [
+  { name: 'INFL', val: last.infl, color: '#ee7820', y: y(last.infl) },
+  { name: 'Proxy', val: last.synth, color: '#38a169', y: y(last.synth) },
+  { name: 'SPY', val: last.spy, color: '#2c5282', y: y(last.spy) },
+  { name: 'CPI', val: last.cpi, color: '#64748b', y: y(last.cpi) },
+];
+labelPairs.sort((a, b) => a.y - b.y);
+// Avoid label overlap with simple spacing
+for (let i = 1; i < labelPairs.length; i++) {
+  if (labelPairs[i].y - labelPairs[i - 1].y < 16) labelPairs[i].y = labelPairs[i - 1].y + 16;
+}
+for (const lp of labelPairs) {
+  svg.appendChild(mk('text', { x: lastX + 6, y: lp.y + 4, 'font-size': 11, 'font-weight': 600, fill: lp.color })).textContent = `${lp.name} $${lp.val.toFixed(0)}`;
+}
+
+// Inflation spike annotation (mid-2022)
+const spikeMonth = chartData.findIndex(d => d.ym === '2022-06');
+if (spikeMonth > 0) {
+  svg.appendChild(mk('line', { x1: x(spikeMonth), x2: x(spikeMonth), y1: M.top, y2: M.top + innerH, stroke: '#dc2626', 'stroke-width': 1, 'stroke-dasharray': '2 3', opacity: 0.5 }));
+  svg.appendChild(mk('text', { x: x(spikeMonth) + 4, y: M.top + 14, 'font-size': 10, fill: '#dc2626' })).textContent = '↑ 2022 — pico CPI 9.1% yoy';
+}
+</script>
+</body>
+</html>
