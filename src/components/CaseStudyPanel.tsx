@@ -390,7 +390,18 @@ export default function CaseStudyPanel() {
   const handleRun = useCallback(async () => {
     setStatus('running');
     try {
-      const out = await worker.run(configToJobInput(config, ttmPanel));
+      // Cada corrida usa un seed RANDOM diferente, salvo que la URL traiga
+      // ?seed=N (modo dev/reproducibilidad). Ver el patrón en el doc:
+      // queremos que el cliente vea la varianza entre corridas → confianza
+      // en el modelo. El seed usado se persiste en result.meta.seed y se
+      // embebe en el PDF para auditoría.
+      const url = new URL(globalThis.location.href);
+      const urlSeed = url.searchParams.get('seed');
+      const overrideSeed =
+        urlSeed !== null && /^\d+$/.test(urlSeed)
+          ? Number(urlSeed)
+          : Math.floor(Math.random() * 1e9);
+      const out = await worker.run(configToJobInput(config, ttmPanel, overrideSeed));
       setResult(out);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
@@ -781,13 +792,6 @@ export default function CaseStudyPanel() {
               step={100}
               min={50}
               max={10000}
-            />
-            <NumInput
-              label="Seed"
-              value={config.seed}
-              onChange={(v) => setConfig({ seed: Math.round(v) })}
-              step={1}
-              min={0}
             />
           </div>
         </fieldset>
@@ -1369,6 +1373,12 @@ export default function CaseStudyPanel() {
             <div className="flex items-start justify-between gap-3 flex-wrap mb-1">
               <h3 className="text-sm uppercase tracking-wider text-mercantil-slate dark:text-mercantil-dark-slate font-medium">
                 AUM del fondo — percentiles ($ millones)
+                <span
+                  className="ml-2 font-normal text-[10px] text-mercantil-slate/50 dark:text-mercantil-dark-slate/50 tabular-nums"
+                  title="Seed PRNG de esta corrida. Cada corrida usa uno random distinto para que el cliente vea la robustez (poca variación entre corridas = modelo robusto). Embebido en el PDF para auditoría."
+                >
+                  seed {result.meta.seed}
+                </span>
               </h3>
               {/* Dos toggles ortogonales:
                   1. Nominal / Real: el segundo deflacta por CPI bootstrapped

@@ -170,6 +170,12 @@ export const DEFAULT_CASE_CONFIG: CaseStudyConfig = {
 export function configToJobInput(
   config: CaseStudyConfig,
   ttmPanel?: TTMPanel | null,
+  /**
+   * Override del seed. Cuando se pasa, sobreescribe `config.seed`. Usado
+   * por el case study para randomizar el seed en cada corrida (UI hide
+   * + autorandom). Si no se pasa, usa `config.seed` (modo legacy o dev).
+   */
+  overrideSeed?: number,
 ): ArenaJobInput {
   // Normaliza pesos del mix al envío. El UI mantiene pesos arbitrarios para
   // permitir edición fluida (sliders independientes); el motor requiere suma=1.
@@ -271,7 +277,7 @@ export function configToJobInput(
     initialAumUsd: config.initialAumUsd,
     horizonMonths: config.horizonMonths,
     nSims: config.nSims,
-    seed: config.seed,
+    seed: overrideSeed ?? config.seed,
     cashBandUpper: config.cashBandUpper,
     dpfRateOverride: config.dpfRateOverride,
     maxBulletYears: config.maxBulletYearsEnabled ? config.maxBulletYears : null,
