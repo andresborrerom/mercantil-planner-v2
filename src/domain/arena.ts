@@ -119,6 +119,13 @@ export type ArenaMarket = {
    * lanza.
    */
   hyReturns?: Float32Array | null;
+  /**
+   * OPCIONAL: retornos mensuales del sleeve "Activos Reales" (mix de RWO +
+   * IEI + IXC blended por pesos del usuario). [nSims × horizonMonths]
+   * sim-major. Solo se usa cuando `config.rolloverPlan.realAssetsPct > 0`.
+   * Si es null y realAssetsPct > 0, runArena lanza.
+   */
+  realAssetsReturns?: Float32Array | null;
   /** Yield paths simulados (necesarios para clasificar régimen y para uy3y del loan). */
   yieldPaths: {
     readonly IRX: Float32Array;
@@ -201,6 +208,12 @@ export type ArenaOutput = {
   netWealthPath: Float64Array;
   /** Sleeve AUMs row-major [nSims × (H+1) × 3] (0=bullets, 1=equity, 2=cash). */
   sleevePath: Float64Array;
+  /**
+   * Path del sleeve "Activos Reales" [nSims × (H+1)]. Siempre presente
+   * (alocado en init); queda en 0 si realAssetsPct=0. Separado del sleevePath
+   * para no romper la shape legacy (paridad Python).
+   */
+  realAssetsPath: Float64Array;
   /** Loan balance per sim per mes. Row-major [nSims × (H+1)]. */
   loanBalancePath: Float64Array;
   /**
@@ -445,6 +458,21 @@ export function runArena(
   const bulletTotalIG = AUM0 * plan.bulletTotalPct * igFraction;
   const initialHyAum = AUM0 * plan.bulletTotalPct * hyWeight;
 
+  // Real Assets sleeve (4th sleeve). Default 0 = comportamiento previo.
+  const realAssetsPct = plan.realAssetsPct ?? 0;
+  if (realAssetsPct < 0 || realAssetsPct > 1) {
+    throw new Error(`runArena: plan.realAssetsPct=${realAssetsPct} fuera de [0,1]`);
+  }
+  if (realAssetsPct > 0 && !market.realAssetsReturns) {
+    throw new Error('runArena: plan.realAssetsPct > 0 requiere market.realAssetsReturns');
+  }
+  if (market.realAssetsReturns && market.realAssetsReturns.length !== nSims * H) {
+    throw new Error(
+      `runArena: market.realAssetsReturns length ${market.realAssetsReturns.length} ≠ nSims*H=${nSims * H}`,
+    );
+  }
+  const initialRealAssetsAum = AUM0 * realAssetsPct;
+
   const bulletAumInit = new Float64Array(nTotal);
   if (plan.bulletInitialWeights) {
     if (plan.bulletInitialWeights.length !== nReal) {
@@ -476,12 +504,17 @@ export function runArena(
     initialBulletAums: bulletAumInit,
     nBullets: nTotal,
     initialHyAum,
+    initialRealAssetsAum,
     initialAumForCostBasis: AUM0,
   });
 
   // ----- Output buffers (sim-major: [s * (H+1) + t]) -----
   const aumPath = new Float64Array(nSims * Hp1);
   const sleevePath = new Float64Array(nSims * Hp1 * 3);
+  // realAssetsPath: paralelo a sleevePath, separado para no romper la shape
+  // legacy (sleeve [bullets, equity, cash]). Se aloca SIEMPRE pero queda en 0
+  // si realAssetsPct=0 (overhead chico vs forzar opcional en consumidores).
+  const realAssetsPath = new Float64Array(nSims * Hp1);
   const loanBalancePath = new Float64Array(nSims * Hp1);
   const bulletHoldings = options.outputBulletHoldings
     ? new Float64Array(nSims * Hp1 * nTotal)
@@ -490,6 +523,7 @@ export function runArena(
   const snapshot = (tIdx: number): void => {
     const totals = totalAum(state);
     const hy = state.hyAum;
+    const ra = state.realAssetsAum;
     for (let s = 0; s < nSims; s++) {
       aumPath[s * Hp1 + tIdx] = totals[s];
       const off = s * Hp1 * 3 + tIdx * 3;
@@ -501,6 +535,7 @@ export function runArena(
       sleevePath[off + 0] = bSum + (hy ? hy[s] : 0);
       sleevePath[off + 1] = state.equityAum[s];
       sleevePath[off + 2] = state.cashAum[s];
+      realAssetsPath[s * Hp1 + tIdx] = ra ? ra[s] : 0;
       loanBalancePath[s * Hp1 + tIdx] = state.loanBalance[s];
       if (bulletHoldings) {
         const bhOff = s * Hp1 * nTotal + tIdx * nTotal;
@@ -525,6 +560,7 @@ export function runArena(
 
   // ----- Main forward loop -----
   const hyReturns = market.hyReturns ?? null;
+  const realAssetsReturns = market.realAssetsReturns ?? null;
   for (let t = 0; t < H; t++) {
     // 1. Aplicar retornos mensuales (USD)
     for (let s = 0; s < nSims; s++) {
@@ -537,6 +573,9 @@ export function runArena(
       state.cashAum[s] *= 1 + market.cashReturns[cell];
       if (state.hyAum && hyReturns) {
         state.hyAum[s] *= 1 + hyReturns[cell];
+      }
+      if (state.realAssetsAum && realAssetsReturns) {
+        state.realAssetsAum[s] *= 1 + realAssetsReturns[cell];
       }
     }
 
@@ -788,6 +827,7 @@ export function runArena(
     aumPath,
     netWealthPath,
     sleevePath,
+    realAssetsPath,
     loanBalancePath,
     events,
     regimeCounts,
