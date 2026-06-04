@@ -331,10 +331,10 @@ function executeJob(id: string, payload: ArenaJobInput): {
   if (!Number.isInteger(payload.nSims) || payload.nSims < 1) {
     throw new Error(`nSims inválido: ${payload.nSims}`);
   }
-  const allocSum = payload.bulletTotalPct + payload.equityPct + payload.cashPct;
+  const allocSum = payload.bulletTotalPct + payload.equityPct + payload.cashPct + (payload.realAssetsPct ?? 0);
   if (Math.abs(allocSum - 1) > 1e-6) {
     throw new Error(
-      `allocation suma ${allocSum.toFixed(4)} ≠ 1 (bullets+equity+cash)`,
+      `allocation suma ${allocSum.toFixed(4)} ≠ 1 (bullets+equity+realAssets+cash)`,
     );
   }
 

@@ -116,6 +116,7 @@ export const ETF_LABELS: Readonly<Record<Ticker, EtfLabel>> = {
   IXC: { short: 'Energía', group: 'equitySector' },
   RWO: { short: 'Real estate global', group: 'equitySector' },
   JXI: { short: 'Utilities', group: 'equitySector' },
+  INFL: { short: 'Anti-inflación equity', group: 'equitySector' },
 };
 
 /** Lookup del label (lanza error si el ticker no existe). */

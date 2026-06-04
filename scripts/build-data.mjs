@@ -41,6 +41,10 @@ const EXPECTED_TICKERS = [
   // para extender historia (ver UNIVERSO.md §3 bis). Lo que sigue cubierto
   // por NAN_PROXY_MAP es solo el residuo pre-splice.
   'SPHQ', 'SPYD', 'OEF', 'QQQ', 'RSP', 'SPMO', 'CAPE',
+  // v2 PR #D-2 (2026-06-04): INFL para sleeve Activos Reales.
+  // INFL = Horizon Kinetics Inflation Beneficiaries (lanzado 2021-01).
+  // Pre-2021 imputado con proxy IXC (Energy global, captures commodities producers).
+  'INFL',
 ];
 
 /** RF tickers tal como aparecen en mercantil_rf_decomposed.csv (orden sensible). */
@@ -92,6 +96,11 @@ const NAN_PROXY_MAP = {
   SPMO: 'SPY', //   S&P Momentum factor → US blend (splice c/ PDP arranca 2007-04; restan 15m a SPY)
   CAPE: 'IWD', //   Shiller CAPE rotation → US value (splice c/ RPV arranca 2006-04; restan 3m a IWD)
   SPYD: 'SCHD', //  S&P high-dividend top-80 → dividend equity (lanzado 2015-10; 118m via SCHD→IWD transitivo)
+  // v2 PR #D-2: INFL launched 2021-01 → 181 meses (2006-01 a 2020-12) imputados
+  // con IXC (Energy global). Plausible proxy: INFL invierte en commodities
+  // producers, royalty companies, asset-light businesses; IXC captures el
+  // segmento energy de eso. Documentado al cliente como aproximación.
+  INFL: 'IXC',
 };
 
 // --------------------------------------------------------------------------
