@@ -47,6 +47,7 @@ import {
   MAX_SAVED_VARIANTS,
   useCaseStudyStore,
   type CaseStudyConfig,
+  type SavedVariant,
 } from '../state/caseStudyStore';
 
 // =====================================================================
@@ -127,6 +128,65 @@ const TOOLTIP_PROPS = {
   itemStyle: { padding: '1px 0', fontSize: '9.5px' },
   labelStyle: { fontWeight: 600, marginBottom: 2, fontSize: '10px' },
 };
+
+// =====================================================================
+// AUTO-LABEL BUILDER PARA CORRIDAS GUARDADAS
+// =====================================================================
+
+/**
+ * Construye un label descriptivo para auto-guardado de variantes.
+ * Captura los DELTAS más relevantes vs el DEFAULT_CASE_CONFIG (allocation,
+ * mix de equity/RF, préstamo, max ladder años). Si el config es idéntico
+ * al default, devuelve "default". Timestamp del lado del caller.
+ */
+function buildAutoLabel(config: CaseStudyConfig, runNumber: number): string {
+  const deltas: string[] = [];
+  const def = DEFAULT_CASE_CONFIG;
+  // Allocation: solo si distinto del 65/30/5
+  if (
+    Math.abs(config.bulletTotalPct - def.bulletTotalPct) > 1e-6 ||
+    Math.abs(config.equityPct - def.equityPct) > 1e-6 ||
+    Math.abs(config.cashPct - def.cashPct) > 1e-6
+  ) {
+    deltas.push(
+      `${Math.round(config.bulletTotalPct * 100)}/${Math.round(config.equityPct * 100)}/${Math.round(config.cashPct * 100)}`,
+    );
+  }
+  // HY mix activado
+  const hyW = config.bulletMix.find((m) => m.ticker === 'GHYG')?.weight ?? 0;
+  const igW = config.bulletMix.find((m) => m.ticker === 'iBonds')?.weight ?? 1;
+  const totW = hyW + igW;
+  if (totW > 0 && hyW / totW > 0.001) {
+    deltas.push(`HY ${Math.round((hyW / totW) * 100)}%`);
+  }
+  // Max ladder años activado
+  if (config.maxBulletYearsEnabled) {
+    deltas.push(`max ladder ${config.maxBulletYears}y`);
+  }
+  // Préstamo o venta
+  if (config.loanEnabled) {
+    const verb = config.loanMethod === 'sell' ? 'vender' : 'préstamo';
+    deltas.push(`${verb} ${Math.round(config.loanAmountPctAum * 100)}% mes ${config.loanTriggerMonth}`);
+  }
+  // Bucket bootstrap engine
+  if (config.bulletReturnsEngine === 'bucket-bootstrap') {
+    deltas.push('bucket bootstrap');
+  }
+  // Equity mix custom (distinto a USMV/SCHD 50/50)
+  const eqUSMV = config.equityMix.find((m) => m.ticker === 'USMV')?.weight ?? 0;
+  const eqSCHD = config.equityMix.find((m) => m.ticker === 'SCHD')?.weight ?? 0;
+  const eqTot = config.equityMix.reduce((s, m) => s + m.weight, 0);
+  const isDefaultEq =
+    eqTot > 0 &&
+    Math.abs(eqUSMV / eqTot - 0.5) < 1e-6 &&
+    Math.abs(eqSCHD / eqTot - 0.5) < 1e-6 &&
+    config.equityMix.length === 2;
+  if (!isDefaultEq) {
+    deltas.push('mix equity custom');
+  }
+  const summary = deltas.length === 0 ? 'default' : deltas.join(' · ');
+  return `Corrida #${runNumber} · ${summary}`;
+}
 
 // =====================================================================
 // INPUT COMPONENTS
@@ -317,10 +377,11 @@ export default function CaseStudyPanel() {
   const setResult = useCaseStudyStore((s) => s.setResult);
   const setError = useCaseStudyStore((s) => s.setError);
   const savedVariants = useCaseStudyStore((s) => s.savedVariants);
-  const saveCurrentAsVariant = useCaseStudyStore((s) => s.saveCurrentAsVariant);
+  const autoSaveVariant = useCaseStudyStore((s) => s.autoSaveVariant);
+  const setVariantVisibility = useCaseStudyStore((s) => s.setVariantVisibility);
+  const renameVariant = useCaseStudyStore((s) => s.renameVariant);
   const removeVariant = useCaseStudyStore((s) => s.removeVariant);
   const clearVariants = useCaseStudyStore((s) => s.clearVariants);
-  const [variantLabel, setVariantLabel] = useState('');
   // Toggle de baseline DPF1Y. Default ON: el cliente debe ver siempre el
   // "qué pasa si no hago nada fancy" para entender el valor relativo de la
   // propuesta. Aplica a personas naturales y jurídicas por igual.
@@ -387,6 +448,13 @@ export default function CaseStudyPanel() {
   const allocSum = config.bulletTotalPct + config.equityPct + config.cashPct;
   const allocValid = Math.abs(allocSum - 1) < 1e-6;
 
+  // Track el config que produjo el `result` actual. Lo seteamos justo
+  // ANTES de submitir al worker (lazy capture); cuando vuelve, queda
+  // como "el config que generó este result". La PRÓXIMA corrida usa
+  // este snapshot para auto-guardar la variante previa con su config
+  // correcto (no el config actual que ya fue modificado por el usuario).
+  const resultConfigRef = useRef<CaseStudyConfig | null>(null);
+
   const handleRun = useCallback(async () => {
     setStatus('running');
     try {
@@ -401,12 +469,31 @@ export default function CaseStudyPanel() {
         urlSeed !== null && /^\d+$/.test(urlSeed)
           ? Number(urlSeed)
           : Math.floor(Math.random() * 1e9);
+      // Capturamos el config que va a producir este result (snapshot).
+      // Si ya hay un result previo, su config es el que estaba en el ref
+      // ANTES de este reemplazo. Lo guardamos como variante con su config
+      // correcto.
+      const configSnapshot: CaseStudyConfig = { ...config };
       const out = await worker.run(configToJobInput(config, ttmPanel, overrideSeed));
+      // Auto-guarda el result PREVIO como variante con label descriptivo
+      // antes de reemplazarlo. Así el cliente acumula corridas comparables
+      // sin tener que apretar "Guardar variante" manualmente. La primera
+      // corrida no genera auto-save (no hay nada previo).
+      if (result && resultConfigRef.current) {
+        const runNumber = savedVariants.length + 1;
+        const label = buildAutoLabel(resultConfigRef.current, runNumber);
+        autoSaveVariant({
+          label,
+          config: resultConfigRef.current,
+          result,
+        });
+      }
+      resultConfigRef.current = configSnapshot;
       setResult(out);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     }
-  }, [config, ttmPanel, worker, setStatus, setResult, setError]);
+  }, [config, ttmPanel, worker, setStatus, setResult, setError, autoSaveVariant, result, savedVariants.length]);
 
   // DPF1Y baseline percentiles per-mes — viene del worker per-sim (paired con
   // los yield paths del bootstrap). Cada 12 meses el sim lockea la tasa al
@@ -1301,71 +1388,32 @@ export default function CaseStudyPanel() {
               </div>
             </div>
             <p className="text-xs text-mercantil-slate dark:text-mercantil-dark-slate mb-3">
-              Guardá el resultado actual con un nombre para overlayear su mediana en el fan chart. Útil para comparar
-              C-conservador / C-equilibrado / C-agresivo sin perder de vista los números — pueden coexistir hasta {MAX_SAVED_VARIANTS} variantes.
-              Cambiá la allocation, corré la simulación de nuevo y mirá las medianas overlayed.
-              El <strong>DPF1Y baseline</strong> simula "renovar depósito a plazo cada 12 meses" — paired con los
-              mismos yield paths del bootstrap. La <strong>tasa inicial</strong> ({(dpfRateAnnual * 100).toFixed(2)}%
-              default vs {config.dpfRateOverride !== null ? `override ${(config.dpfRateOverride * 100).toFixed(2)}%` : 'sin override'}) define
-              el punto de partida; las renovaciones futuras mueven la tasa según el UST1Y simulado, preservando el
-              spread sobre treasury. Cuando el cliente trae una <strong>oferta concreta del banco</strong> ("me ofrecen DPF a 5.25%"),
-              poné ese valor en el campo y la línea queda anclada en esa tasa. El fan chart muestra bandas p5–p95 / p25–p75
-              del DPF para comparación de riesgo apples-to-apples con la estrategia.
+              Cada corrida queda guardada automáticamente con un label descriptivo. Marcá el checkbox para mostrar su
+              mediana en el fan chart. Por default mostramos la <strong>primera corrida</strong> (ancla de referencia)
+              y la <strong>última</strong> (la actual). Las del medio quedan ocultas; marcá las que quieras comparar.
+              Cap {MAX_SAVED_VARIANTS} variantes — al exceder, descartamos la más vieja no-anclada. Click en el label
+              para renombrar manualmente.
+              {' '}El <strong>DPF1Y baseline</strong> simula "renovar depósito a plazo cada 12 meses" — paired con los
+              mismos yield paths del bootstrap.
             </p>
-            <div className="flex flex-wrap items-center gap-2">
-              {savedVariants.map((v) => (
-                <span
+            <div className="space-y-1">
+              {savedVariants.length === 0 && (
+                <p className="text-xs text-mercantil-slate/60 dark:text-mercantil-dark-slate/60 italic">
+                  Aún no hay corridas guardadas. Apretá "Correr simulación" — la primera corrida se mostrará en el chart;
+                  desde la segunda en adelante, se acumulan acá para comparar.
+                </p>
+              )}
+              {savedVariants.map((v, idx) => (
+                <VariantRow
                   key={v.id}
-                  className="inline-flex items-center gap-1.5 px-2 py-1 rounded-full text-xs border"
-                  style={{ borderColor: v.color, color: v.color }}
-                >
-                  <span className="inline-block w-2 h-2 rounded-full" style={{ background: v.color }} />
-                  {v.label}
-                  <button
-                    onClick={() => removeVariant(v.id)}
-                    className="ml-1 hover:opacity-60"
-                    aria-label={`Quitar ${v.label}`}
-                  >
-                    ×
-                  </button>
-                </span>
-              ))}
-              <div className="flex items-center gap-1 ml-auto">
-                <input
-                  type="text"
-                  placeholder={`p.ej. "C-equilibrado 65/30/5"`}
-                  value={variantLabel}
-                  onChange={(e) => setVariantLabel(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter' && savedVariants.length < MAX_SAVED_VARIANTS) {
-                      saveCurrentAsVariant(variantLabel);
-                      setVariantLabel('');
-                    }
-                  }}
-                  className="px-2 py-1 text-xs rounded border border-mercantil-line dark:border-mercantil-dark-line bg-white dark:bg-mercantil-dark-panel w-56"
+                  variant={v}
+                  isAnchor={idx === 0}
+                  onToggleVisibility={(visible) => setVariantVisibility(v.id, visible)}
+                  onRename={(label) => renameVariant(v.id, label)}
+                  onRemove={() => removeVariant(v.id)}
                 />
-                <button
-                  onClick={() => {
-                    saveCurrentAsVariant(variantLabel);
-                    setVariantLabel('');
-                  }}
-                  disabled={savedVariants.length >= MAX_SAVED_VARIANTS}
-                  className="px-3 py-1 text-xs rounded bg-mercantil-navy text-white hover:bg-mercantil-navy/90 disabled:opacity-50 disabled:cursor-not-allowed"
-                >
-                  Guardar run actual
-                </button>
-              </div>
+              ))}
             </div>
-            {savedVariants.length === 0 && (
-              <p className="mt-2 text-xs text-mercantil-slate/60 dark:text-mercantil-dark-slate/60 italic">
-                Aún no hay variantes guardadas. Asigná un nombre a la run actual y click "Guardar run actual" para anclarla al fan chart.
-              </p>
-            )}
-            {savedVariants.length >= MAX_SAVED_VARIANTS && (
-              <p className="mt-2 text-xs text-amber-600 dark:text-amber-400">
-                Llegaste al máximo de {MAX_SAVED_VARIANTS} variantes. Quitá alguna para guardar otra.
-              </p>
-            )}
           </div>
 
           {/* Wealth fan chart */}
@@ -1546,9 +1594,11 @@ export default function CaseStudyPanel() {
                     name={valuationMode === 'htm' ? 'Mediana — a vencimiento' : 'Mediana — a mercado'}
                     isAnimationActive={false}
                   />
-                  {/* Overlay de medianas de variantes guardadas. Cada una con
-                       su color asignado en el store al guardarse. */}
-                  {savedVariants.map((v) => (
+                  {/* Overlay de medianas de variantes guardadas, solo las
+                       que están visibles (checkbox marcado). Default: primera
+                       (ancla) + última visible; el medio queda oculto hasta
+                       que el usuario marque a mano. */}
+                  {savedVariants.filter((v) => v.visible).map((v) => (
                     <Line
                       key={v.id}
                       type="monotone"
@@ -1749,7 +1799,7 @@ export default function CaseStudyPanel() {
                       name="Run actual"
                       isAnimationActive={false}
                     />
-                    {savedVariants.map((v) => (
+                    {savedVariants.filter((v) => v.visible).map((v) => (
                       <Line
                         key={v.id}
                         type="monotone"
@@ -1861,6 +1911,92 @@ export default function CaseStudyPanel() {
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+/**
+ * Fila de una variante guardada: checkbox de visibilidad + label
+ * (click-to-edit) + botón remove. La primera variante (isAnchor=true)
+ * se muestra con un icono de ancla; no se puede eliminar (es la
+ * referencia del comparativo).
+ */
+function VariantRow({
+  variant,
+  isAnchor,
+  onToggleVisibility,
+  onRename,
+  onRemove,
+}: {
+  variant: SavedVariant;
+  isAnchor: boolean;
+  onToggleVisibility: (visible: boolean) => void;
+  onRename: (label: string) => void;
+  onRemove: () => void;
+}) {
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState(variant.label);
+  useEffect(() => {
+    if (!editing) setDraft(variant.label);
+  }, [editing, variant.label]);
+
+  const commit = () => {
+    onRename(draft);
+    setEditing(false);
+  };
+
+  return (
+    <div className="flex items-center gap-2 px-2 py-1.5 rounded border border-mercantil-line dark:border-mercantil-dark-line bg-mercantil-bg-soft/20 dark:bg-mercantil-dark-panel/40">
+      <input
+        type="checkbox"
+        checked={variant.visible}
+        onChange={(e) => onToggleVisibility(e.target.checked)}
+        className="accent-mercantil-orange h-3.5 w-3.5 flex-shrink-0"
+        aria-label={`Mostrar ${variant.label} en el chart`}
+      />
+      <span
+        className="inline-block w-2.5 h-2.5 rounded-full flex-shrink-0"
+        style={{ background: variant.color }}
+      />
+      {isAnchor && (
+        <span title="Corrida de referencia (no se borra automáticamente)" className="text-[11px] flex-shrink-0">
+          ⚓
+        </span>
+      )}
+      {editing ? (
+        <input
+          type="text"
+          value={draft}
+          onChange={(e) => setDraft(e.target.value)}
+          onBlur={commit}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') (e.currentTarget as HTMLInputElement).blur();
+            if (e.key === 'Escape') {
+              setDraft(variant.label);
+              setEditing(false);
+            }
+          }}
+          onFocus={(e) => e.currentTarget.select()}
+          className="flex-1 min-w-0 px-2 py-0.5 text-xs rounded border border-mercantil-orange bg-white dark:bg-mercantil-dark-panel text-mercantil-ink dark:text-mercantil-dark-ink"
+          autoFocus
+        />
+      ) : (
+        <span
+          className="flex-1 min-w-0 text-xs text-mercantil-ink dark:text-mercantil-dark-ink truncate cursor-pointer hover:underline"
+          onClick={() => setEditing(true)}
+          title="Click para renombrar"
+        >
+          {variant.label}
+        </span>
+      )}
+      <button
+        onClick={onRemove}
+        className="text-mercantil-slate/60 dark:text-mercantil-dark-slate/60 hover:text-red-600 text-sm leading-none flex-shrink-0"
+        aria-label={`Quitar ${variant.label}`}
+        title="Eliminar variante"
+      >
+        ×
+      </button>
     </div>
   );
 }
