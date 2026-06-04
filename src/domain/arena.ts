@@ -63,6 +63,13 @@ export type ArenaConfig = {
   nExtensions?: number;
   /** Espaciado en años entre extensiones (default 1.0). */
   extensionSpacingY?: number;
+  /**
+   * Cap de maturityY sobre los sintéticos. Cuando se setea, el ladder rola
+   * en bullets de TTM ≤ extensionMaxMaturityY toda la vida del estudio
+   * (no solo en el lineup inicial). Útil para clientes que quieren un
+   * ladder corto persistente. Ver createExtensionBullets.
+   */
+  extensionMaxMaturityY?: number;
   /** Cash share máximo antes de rebalancear (default 0.05). */
   cashBandUpper?: number;
   /** False = buy-and-hold sin rollover (default true). */
@@ -195,11 +202,17 @@ export type ArenaOutput = {
 /**
  * Crea n_extensions BulletDef sintéticos +k × spacingY arriba del bullet real
  * más largo. dur_init_y = 0.93 × maturity_y (regla IG corp).
+ *
+ * Si `maxMaturityY` se especifica, la maturityY de cada sintético se capa
+ * a ese valor — útil cuando el cliente quiere un ladder con duración tope
+ * (e.g., maxBulletYears=2 → todos los sintéticos a 2y, ladder rola en 2y).
+ * Cuando no se pasa, comportamiento histórico (sintéticos hasta longest+25y).
  */
 export function createExtensionBullets(
   realBullets: ReadonlyArray<BulletDef>,
   nExtensions: number,
   spacingY = 1.0,
+  maxMaturityY?: number,
 ): BulletDef[] {
   if (nExtensions <= 0) return [];
   let longest = -Infinity;
@@ -207,9 +220,10 @@ export function createExtensionBullets(
   if (!Number.isFinite(longest)) {
     throw new Error('createExtensionBullets: realBullets vacío');
   }
+  const cap = maxMaturityY !== undefined ? maxMaturityY : Infinity;
   const out: BulletDef[] = [];
   for (let k = 1; k <= nExtensions; k++) {
-    const m = longest + k * spacingY;
+    const m = Math.min(longest + k * spacingY, cap);
     out.push({
       name: `EXT${k.toString().padStart(2, '0')}`,
       maturityY: m,
@@ -322,7 +336,12 @@ export function runArena(
 
   // ----- Setup bullets reales + extensiones -----
   const realBullets = plan.bullets;
-  const extensions = createExtensionBullets(realBullets, nExtensions, extensionSpacingY);
+  const extensions = createExtensionBullets(
+    realBullets,
+    nExtensions,
+    extensionSpacingY,
+    config.extensionMaxMaturityY,
+  );
   const allBullets: BulletDef[] = [...realBullets, ...extensions];
   const nReal = realBullets.length;
   const nTotal = allBullets.length;
@@ -744,6 +763,8 @@ export type BuildArenaMarketSpec = {
   realBullets: ReadonlyArray<BulletDef>;
   nExtensions?: number;
   extensionSpacingY?: number;
+  /** Cap de maturityY sobre los sintéticos. Ver createExtensionBullets. */
+  extensionMaxMaturityY?: number;
   equityMix: ReadonlyArray<{ ticker: Ticker; weight: number }>;
   cashTicker: Ticker;
   initialSpread: number;
@@ -779,6 +800,7 @@ export function buildArenaMarket(spec: BuildArenaMarketSpec): ArenaMarket {
     spec.realBullets,
     spec.nExtensions ?? 10,
     spec.extensionSpacingY ?? 1.0,
+    spec.extensionMaxMaturityY,
   );
   const allBullets = [...spec.realBullets, ...extensions];
 
