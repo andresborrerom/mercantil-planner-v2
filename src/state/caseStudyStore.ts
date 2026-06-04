@@ -41,6 +41,16 @@ export type CaseStudyConfig = {
   loanTriggerMonth: number;
   loanAmountPctAum: number;
   loanTermMonths: number;
+  /**
+   * Método de financiamiento del evento (cuando loanEnabled=true):
+   *  - 'loan' (default): el endowment toma préstamo bancario, lo sirve con
+   *    su cashflow mensual. AUM intacto al disparo.
+   *  - 'sell': el endowment vende el monto directamente. AUM cae en escalón
+   *    al disparo, sin deuda posterior.
+   * Permite comparar las dos estrategias para una necesidad de capital
+   * conocida — para el case study del colegio, financiar la nueva ala.
+   */
+  loanMethod: 'loan' | 'sell';
   thresholds: RolloverThresholds;
   rolloverEnabled: boolean;
   cashBandUpper: number;
@@ -136,6 +146,7 @@ export const DEFAULT_CASE_CONFIG: CaseStudyConfig = {
   loanTriggerMonth: 60,
   loanAmountPctAum: 0.10,
   loanTermMonths: 36,
+  loanMethod: 'loan',
   thresholds: { ...DEFAULT_ROLLOVER_THRESHOLDS },
   rolloverEnabled: true,
   cashBandUpper: 0.05,
@@ -254,6 +265,7 @@ export function configToJobInput(
           triggerMonth: config.loanTriggerMonth,
           amountPctAum: config.loanAmountPctAum,
           termMonths: config.loanTermMonths,
+          method: config.loanMethod,
         }
       : null,
     initialAumUsd: config.initialAumUsd,
