@@ -338,10 +338,16 @@ function executeJob(id: string, payload: ArenaJobInput): {
   const nExtensions = payload.nExtensions ?? 25;
   const extensionSpacingY = payload.extensionSpacingY ?? 1.0;
   const hyWeight = payload.hyWeight ?? 0;
+  // Cuando el usuario setea maxBulletYears, capeamos también la maturityY de
+  // los sintéticos de rollover — así el ladder se mantiene ≤ N años toda la
+  // vida del estudio, no solo en el lineup inicial. payload.maxBulletYears
+  // viene del store cuando maxBulletYearsEnabled=true.
+  const extensionMaxMaturityY = payload.maxBulletYears ?? undefined;
   const market = buildArenaMarket({
     realBullets,
     nExtensions,
     extensionSpacingY,
+    extensionMaxMaturityY,
     equityMix,
     cashTicker: payload.cashTicker as Ticker,
     initialSpread: payload.initialSpread,
@@ -372,6 +378,7 @@ function executeJob(id: string, payload: ArenaJobInput): {
             realBullets,
             nExtensions,
             extensionSpacingY,
+            extensionMaxMaturityY,
           ),
         ],
         payload.ttmPanel!,
@@ -420,6 +427,7 @@ function executeJob(id: string, payload: ArenaJobInput): {
     initialAumUsd: payload.initialAumUsd,
     nExtensions,
     extensionSpacingY,
+    extensionMaxMaturityY,
     cashBandUpper: payload.cashBandUpper ?? 0.05,
     rolloverEnabled: payload.rolloverEnabled ?? true,
     dpfRateOverride: payload.dpfRateOverride ?? null,
