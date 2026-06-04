@@ -244,6 +244,12 @@ export type ArenaJobOutput = {
   meta: {
     nSims: number;
     horizonMonths: number;
+    /**
+     * Seed PRNG usado por esta corrida. Persistido para reproducibilidad —
+     * embebido en el PDF de disclaimers para que el cliente (o auditor) pueda
+     * recomputar exactamente las mismas trayectorias en una sesión futura.
+     */
+    seed: number;
     elapsedBootstrapMs: number;
     elapsedArenaMs: number;
   };
@@ -581,6 +587,7 @@ function executeJob(id: string, payload: ArenaJobInput): {
     meta: {
       nSims: payload.nSims,
       horizonMonths: payload.horizonMonths,
+      seed: payload.seed,
       elapsedBootstrapMs: tBoot1 - tBoot0,
       elapsedArenaMs: tArena1 - tArena0,
     },

@@ -132,7 +132,7 @@ export type CaseStudyConfig = {
 export const DEFAULT_CASE_CONFIG: CaseStudyConfig = {
   initialAumUsd: 5_000_000,
   horizonMonths: 240,
-  nSims: 500,
+  nSims: 5000,
   seed: 42,
   bulletTotalPct: 0.65,
   equityPct: 0.30,
@@ -170,6 +170,12 @@ export const DEFAULT_CASE_CONFIG: CaseStudyConfig = {
 export function configToJobInput(
   config: CaseStudyConfig,
   ttmPanel?: TTMPanel | null,
+  /**
+   * Override del seed. Cuando se pasa, sobreescribe `config.seed`. Usado
+   * por el case study para randomizar el seed en cada corrida (UI hide
+   * + autorandom). Si no se pasa, usa `config.seed` (modo legacy o dev).
+   */
+  overrideSeed?: number,
 ): ArenaJobInput {
   // Normaliza pesos del mix al envío. El UI mantiene pesos arbitrarios para
   // permitir edición fluida (sliders independientes); el motor requiere suma=1.
@@ -271,7 +277,7 @@ export function configToJobInput(
     initialAumUsd: config.initialAumUsd,
     horizonMonths: config.horizonMonths,
     nSims: config.nSims,
-    seed: config.seed,
+    seed: overrideSeed ?? config.seed,
     cashBandUpper: config.cashBandUpper,
     dpfRateOverride: config.dpfRateOverride,
     maxBulletYears: config.maxBulletYearsEnabled ? config.maxBulletYears : null,
@@ -300,10 +306,17 @@ export type SavedVariant = {
   config: CaseStudyConfig;
   result: ArenaJobOutput;
   color: string; // tailwind/css color hex para el overlay
+  /**
+   * Si true, la mediana de esta variante se overlay-ea en el fan chart.
+   * Default visibility on add: solo la PRIMERA y la última (recien creada)
+   * quedan visibles. Las del medio quedan en false; el usuario las marca a
+   * mano para verlas. Evita saturar el chart con 8 medianas overlayed.
+   */
+  visible: boolean;
 };
 
 /** Máximo de variantes guardadas simultáneamente (por memoria y legibilidad). */
-export const MAX_SAVED_VARIANTS = 4;
+export const MAX_SAVED_VARIANTS = 8;
 
 /**
  * Colores para overlays de variantes. Evitamos:
@@ -315,7 +328,10 @@ export const MAX_SAVED_VARIANTS = 4;
  * Quedan: azul, púrpura, teal, magenta, rojo. Suficiente contraste entre
  * ellos y con los colores reservados.
  */
-const VARIANT_COLORS = ['#003566', '#7c3aed', '#0d9488', '#db2777'] as const;
+const VARIANT_COLORS = [
+  '#003566', '#7c3aed', '#0d9488', '#db2777',
+  '#0891b2', '#a16207', '#15803d', '#9f1239',
+] as const;
 
 /**
  * Metadata del estudio anterior — cuando el usuario sube un PDF previo,
@@ -344,6 +360,23 @@ type CaseStudyState = {
   setResult: (result: ArenaJobOutput) => void;
   setError: (error: string) => void;
   saveCurrentAsVariant: (label: string) => void;
+  /**
+   * Auto-guarda como variante el resultado dado (típicamente el `result`
+   * actual antes de ser reemplazado por una nueva corrida). El label se
+   * pasa ya construido (auto-generado por el caller). Actualiza la
+   * visibilidad de las demás: primera siempre visible, nueva siempre
+   * visible, las del medio se ocultan. Si excede MAX, descarta la oldest
+   * NO-FIJA (no la primera).
+   */
+  autoSaveVariant: (params: {
+    label: string;
+    config: CaseStudyConfig;
+    result: ArenaJobOutput;
+  }) => void;
+  /** Toggle de visibilidad de una variante. */
+  setVariantVisibility: (id: string, visible: boolean) => void;
+  /** Edita el label de una variante (rename manual). */
+  renameVariant: (id: string, label: string) => void;
   removeVariant: (id: string) => void;
   clearVariants: () => void;
   /**
@@ -388,10 +421,53 @@ export const useCaseStudyStore = create<CaseStudyState>((set) => ({
       return {
         savedVariants: [
           ...s.savedVariants,
-          { id, label: cleanLabel, config: { ...s.config }, result: s.result, color },
+          { id, label: cleanLabel, config: { ...s.config }, result: s.result, color, visible: true },
         ],
       };
     }),
+  autoSaveVariant: ({ label, config, result }) =>
+    set((s) => {
+      // El nuevo variant va al FINAL del array. Mark visibility:
+      //   - el primero del array (índice 0) siempre visible (= la "inicial")
+      //   - el nuevo (este que estamos agregando) visible
+      //   - los del medio se ocultan automáticamente (el usuario los re-prende
+      //     a mano si quiere comparar). Esto cumple la regla "max 2 default
+      //     visibles" sin tener que reasignar al cargar.
+      const used = new Set(s.savedVariants.map((v) => v.color));
+      const color = VARIANT_COLORS.find((c) => !used.has(c)) ?? VARIANT_COLORS[0];
+      const id = `v-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
+      const newVariant: SavedVariant = {
+        id,
+        label: label.trim() || `Corrida #${s.savedVariants.length + 1}`,
+        config: { ...config },
+        result,
+        color,
+        visible: true,
+      };
+      // Reset visibility de los existentes: primero queda como está (debería
+      // ser visible=true), resto se oculta.
+      let next = s.savedVariants.map((v, idx) => ({
+        ...v,
+        visible: idx === 0 ? v.visible : false,
+      }));
+      // Si excedemos el cap, descartamos el más viejo NO-PRIMERO (siempre
+      // preservamos el primero como ancla "inicial").
+      if (next.length + 1 > MAX_SAVED_VARIANTS) {
+        const dropIdx = 1; // segundo del array es el más viejo después del ancla
+        next = [...next.slice(0, dropIdx), ...next.slice(dropIdx + 1)];
+      }
+      return { savedVariants: [...next, newVariant] };
+    }),
+  setVariantVisibility: (id, visible) =>
+    set((s) => ({
+      savedVariants: s.savedVariants.map((v) => (v.id === id ? { ...v, visible } : v)),
+    })),
+  renameVariant: (id, label) =>
+    set((s) => ({
+      savedVariants: s.savedVariants.map((v) =>
+        v.id === id ? { ...v, label: label.trim() || v.label } : v,
+      ),
+    })),
   removeVariant: (id) =>
     set((s) => ({ savedVariants: s.savedVariants.filter((v) => v.id !== id) })),
   clearVariants: () => set({ savedVariants: [] }),
