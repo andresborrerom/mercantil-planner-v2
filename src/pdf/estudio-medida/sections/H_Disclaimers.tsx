@@ -121,15 +121,14 @@ export function DisclaimersSection({ state }: Props) {
   const hasProxiedTickers = equityTickers.some((t) => t === 'SPMO' || t === 'CAPE');
   const hasLeverage = state.config.loanEnabled;
   const hasEtn = equityTickers.includes('CAPE');
-  const hasBulletShares = state.config.bulletIssuer !== 'iBonds';
 
   // Filtrado contextual: ocultar el disclaimer del apalancamiento si el config
-  // no lo activa, y el de ETN si CAPE no está en el mix. Esto evita texto
-  // legalmente innecesario y mantiene el apéndice enfocado en el estudio actual.
+  // no lo activa, y el de ETN si CAPE no está en el mix. F2 (BulletShares UCITS)
+  // ya no aparece — el ladder ofrecido es iBonds UCITS únicamente.
   const relevant = DISCLAIMERS.filter((d) => {
     if (!hasLeverage && d.category === 'apalancamiento') return false;
-    if (!hasEtn && d.id === 'F') return false; // disclaimer F = ETN específico
-    if (!hasBulletShares && d.id === 'F2') return false; // F2 = BulletShares UCITS específico
+    if (!hasEtn && d.id === 'F') return false;
+    if (d.id === 'F2') return false;
     return true;
   });
 

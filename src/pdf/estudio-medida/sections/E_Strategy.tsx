@@ -130,39 +130,15 @@ type Props = {
   state: EstudioMedidaStateContainer;
 };
 
-function issuerLabel(i: string): string {
-  if (i === 'iBonds') return 'iBonds UCITS (BlackRock)';
-  if (i === 'bulletshares-ucits') return 'BulletShares UCITS (Invesco)';
-  if (i === 'split-50-50') return 'Split 50/50 iBonds + BulletShares (donde aplique)';
-  return i;
-}
+const ISSUER_LABEL = 'iBonds UCITS (BlackRock)';
 
-function ladderDescription(issuer: string): string {
-  if (issuer === 'bulletshares-ucits') {
-    return (
-      'Lineup inicial: Invesco BulletShares USD Corporate UCITS (vintages 2026–2030: ' +
-      'BS6A.L, BS7A.L, BS8A.L, BS9A.L, BS0A.L). La oferta UCITS de BulletShares cubre ' +
-      '5 vintages al inicio. Rollover táctico asume continuidad de la oferta — nuevos ' +
-      'vintages UCITS estarán disponibles cuando llegue el momento de reinvertir el principal.'
-    );
-  }
-  if (issuer === 'split-50-50') {
-    return (
-      'Lineup inicial con split issuer 50/50 para vintages 2026–2030 (mitad iShares iBonds UCITS ' +
-      'USD Corp, mitad Invesco BulletShares USD Corp UCITS — BS6A/7A/8A/9A/0A.L). Vintages 2031–2034 ' +
-      'son 100% iBonds (BulletShares no cubre esos años al inicio). Rollover táctico asume ' +
-      'continuidad de la oferta UCITS — nuevos vintages estarán disponibles a futuro.'
-    );
-  }
-  return (
-    'Lineup inicial: 9 vintages reales investment-grade corporativos USD — BlackRock iBonds UCITS ' +
-    'USD Corp Term ETFs Dec 2026–Dec 2034 (ID26.L–ID34.L). TTM máximo al inicio: ~8.6 años, ' +
-    'limitado a la oferta UCITS hoy disponible. Para rollover táctico durante la vida del estudio, ' +
-    'el modelo asume continuidad de la oferta UCITS (nuevos vintages con TTM ~8 años disponibles ' +
-    'al momento de reinvertir), consistente con el patrón histórico de BlackRock de lanzar nueva ' +
-    'vintage anualmente desde 2014.'
-  );
-}
+const LADDER_DESCRIPTION =
+  'Lineup inicial: 9 vintages reales investment-grade corporativos USD — BlackRock iBonds UCITS ' +
+  'USD Corp Term ETFs Dec 2026–Dec 2034 (ID26.L–ID34.L). TTM máximo al inicio: ~8.6 años, ' +
+  'limitado a la oferta UCITS hoy disponible. Para rollover táctico durante la vida del estudio, ' +
+  'el modelo asume continuidad de la oferta UCITS (nuevos vintages con TTM ~8 años disponibles ' +
+  'al momento de reinvertir), consistente con el patrón histórico de BlackRock de lanzar nueva ' +
+  'vintage anualmente desde 2014.';
 
 export function StrategySection({ state }: Props) {
   const { config } = state;
@@ -177,10 +153,10 @@ export function StrategySection({ state }: Props) {
       <View style={styles.sleeveCard} wrap={false}>
         <Text style={styles.sleeveTitle}>Renta fija — escalera de bonos</Text>
         <Text style={styles.sleeveMeta}>
-          {fmtPct(config.bulletTotalPct, 0)} del AUM · Investment-grade USD · {issuerLabel(config.bulletIssuer)}
+          {fmtPct(config.bulletTotalPct, 0)} del AUM · Investment-grade USD · {ISSUER_LABEL}
         </Text>
         <Text style={styles.sleeveBody}>
-          {ladderDescription(config.bulletIssuer)}
+          {LADDER_DESCRIPTION}
           {' '}Inicialización equal-weight (~9.1% por bullet del sleeve). Duración promedio del ladder al inicio:
           {' '}~5–5.5 años. Carry inicial = YTM derivado de la curva Treasury vigente + spread IG de aproximadamente
           {' '}{(config.initialSpread * 10000).toFixed(0)} bp.{'\n\n'}

@@ -3,8 +3,8 @@
  *
  * Port de `estudios-a-la-medida/code/bullet_tier.py` a TypeScript.
  *
- * Bullet = ETF de bonos a vencimiento (iBonds UCITS, BulletShares). Modelado
- * con descomposición explícita:
+ * Bullet = ETF de bonos a vencimiento (iBonds UCITS hoy; en el panel
+ * histórico también US BulletShares). Modelado con descomposición explícita:
  *
  *   r_t = carry + curve + roll + convex
  *

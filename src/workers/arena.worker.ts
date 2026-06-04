@@ -437,9 +437,9 @@ function executeJob(id: string, payload: ArenaJobInput): {
   // AUM "a mercado". Bullets: valor mark-to-market × (1 - default haircut
   // acumulado samplado del histórico Moody's con block bootstrap 3y).
   // Equity y cash: a mercado siempre. NO toca el motor matemático.
-  // El sleeveType se infiere del bulletIssuer (todos los issuers IG hoy;
-  // cuando agreguemos sleeve HY explícito, se calcula por sleeve).
-  const sleeveType: BulletSleeveType = 'ig'; // TBSC default — bullets IG corp
+  // El sleeve único de bullets es IG (iBonds UCITS USD Corp). Cuando se
+  // agregue sleeve HY explícito, este sleeveType se calcula por sleeve.
+  const sleeveType: BulletSleeveType = 'ig';
   const aumPathHTM = computeHoldToMaturityPath(
     processed,
     payload.horizonMonths,
