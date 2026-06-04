@@ -635,7 +635,6 @@ export default function CaseStudyPanel() {
     );
     return unconditionalInflationDistribution(ann);
   }, [result, config.inflationConditioningHorizonMonths]);
-  void unconditionalInflStats; // consumed en Step 4 (UI panel conditioning)
 
   // línea horizontal — es una piecewise-linear que sube con cada aporte. Con
   // growth=0 queda casi recta; con growth>0 los escalones se aceleran cada año.
@@ -1136,6 +1135,72 @@ export default function CaseStudyPanel() {
               suffix="%/yr"
             />
           </div>
+        </fieldset>
+
+        {/* --- Vista condicional de inflación (opcional) --- */}
+        <fieldset className="space-y-2">
+          <legend className="text-xs uppercase tracking-wider text-mercantil-slate dark:text-mercantil-dark-slate font-medium">
+            <label className="flex items-center gap-2 cursor-pointer select-none">
+              <input
+                type="checkbox"
+                checked={config.inflationConditioningEnabled}
+                onChange={(e) => setConfig({ inflationConditioningEnabled: e.target.checked })}
+                className="accent-mercantil-orange h-3.5 w-3.5"
+              />
+              Vista condicional de inflación (opcional)
+            </label>
+          </legend>
+          {config.inflationConditioningEnabled && (
+            <div className="pl-5 space-y-2">
+              <p className="text-[11px] text-mercantil-slate dark:text-mercantil-dark-slate">
+                Filtra las sims donde la inflación anualizada acumulada en los próximos N meses cae en el rango.
+                El chart y los stats se computan solo sobre el subset. No re-corre la simulación — opera sobre el bootstrap.
+              </p>
+              <div className="grid grid-cols-3 gap-3">
+                <NumInput
+                  label="Horizonte (meses)"
+                  value={config.inflationConditioningHorizonMonths}
+                  onChange={(v) => setConfig({ inflationConditioningHorizonMonths: Math.round(v) })}
+                  step={6}
+                  min={1}
+                  max={config.horizonMonths}
+                  hint={`= ${(config.inflationConditioningHorizonMonths / 12).toFixed(1)} años`}
+                />
+                <NumInput
+                  label="Mín %"
+                  value={config.inflationConditioningMinPct * 100}
+                  onChange={(v) => setConfig({ inflationConditioningMinPct: v / 100 })}
+                  step={0.25}
+                  min={-5}
+                  max={20}
+                  suffix="%"
+                />
+                <NumInput
+                  label="Máx %"
+                  value={config.inflationConditioningMaxPct * 100}
+                  onChange={(v) => setConfig({ inflationConditioningMaxPct: v / 100 })}
+                  step={0.25}
+                  min={-5}
+                  max={20}
+                  suffix="%"
+                />
+              </div>
+              {config.inflationConditioningMinPct >= config.inflationConditioningMaxPct && (
+                <p className="text-[11px] text-red-600 dark:text-red-400">
+                  ⚠ El mínimo debe ser menor al máximo.
+                </p>
+              )}
+              {/* Display de evaluación viva — solo cuando hay result.
+                  Muestra: rango natural del modelo (referencia) + % sims que
+                  caen en la vista del usuario + warning si es muy raro */}
+              {result && unconditionalInflStats && viewEvaluation && (
+                <ConditioningEvaluationDisplay
+                  view={viewEvaluation}
+                  unconditional={unconditionalInflStats}
+                />
+              )}
+            </div>
+          )}
         </fieldset>
 
         {/* --- Evento de financiamiento (préstamo o venta) --- */}
@@ -2078,6 +2143,55 @@ function VariantRow({
       >
         ×
       </button>
+    </div>
+  );
+}
+
+/**
+ * Display lateral del conditioning: muestra el rango natural del modelo
+ * para la ventana actual + % de sims que caen en la vista del usuario.
+ * El color del % refleja la robustez estadística:
+ *  - verde: ≥1000 sims condicionales → análisis confiable
+ *  - amarillo: 200-999 → análisis aceptable con caveat
+ *  - rojo: <200 → vista demasiado rara, considerar ampliar
+ */
+function ConditioningEvaluationDisplay({
+  view,
+  unconditional,
+}: {
+  view: { nMatched: number; nTotal: number; probability: number; standardError: number };
+  unconditional: { p5: number; p25: number; p50: number; p75: number; p95: number; mean: number };
+}) {
+  const pct = (x: number) => `${(x * 100).toFixed(2)}%`;
+  let badgeColor = 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-300';
+  let badgeText = 'análisis confiable';
+  if (view.nMatched < 200) {
+    badgeColor = 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-300';
+    badgeText = 'vista muy rara — considerá ampliar el rango';
+  } else if (view.nMatched < 1000) {
+    badgeColor = 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300';
+    badgeText = 'banda con incertidumbre estadística mayor';
+  }
+  return (
+    <div className="mt-2 p-2 rounded border border-mercantil-line dark:border-mercantil-dark-line bg-mercantil-bg-soft/30 dark:bg-mercantil-dark-panel/40 text-[11px] space-y-1">
+      <div>
+        <span className="text-mercantil-slate dark:text-mercantil-dark-slate">Rango natural del modelo (sin condicionar):</span>{' '}
+        <span className="font-medium text-mercantil-ink dark:text-mercantil-dark-ink tabular-nums">
+          p5={pct(unconditional.p5)} · p50={pct(unconditional.p50)} · p95={pct(unconditional.p95)}
+        </span>
+      </div>
+      <div className="flex items-baseline gap-2 flex-wrap">
+        <span className="text-mercantil-slate dark:text-mercantil-dark-slate">Tu vista corresponde al</span>
+        <span className="font-semibold tabular-nums text-mercantil-orange">
+          {pct(view.probability)}
+        </span>
+        <span className="text-mercantil-slate dark:text-mercantil-dark-slate">
+          de las sims ({view.nMatched} de {view.nTotal} · SE ±{(view.standardError * 100).toFixed(2)}pp)
+        </span>
+      </div>
+      <div className={`inline-block px-2 py-0.5 rounded ${badgeColor}`}>
+        {badgeText}
+      </div>
     </div>
   );
 }
