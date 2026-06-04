@@ -40,6 +40,11 @@ import BulletMixSelector from './BulletMixSelector';
 import EstudioMedidaActions from './EstudioMedidaActions';
 import { useEquityCatalogByTicker } from '../hooks/useEquityMeta';
 import { useTTMPanel } from '../hooks/useTTMPanel';
+import {
+  computeAnnInflationInWindow,
+  evaluateInflationView,
+  unconditionalInflationDistribution,
+} from '../domain/inflationView';
 import { useArenaWorker } from '../hooks/useArenaWorker';
 import {
   configToJobInput,
@@ -67,6 +72,37 @@ function pctPath(
     const sorted = Float64Array.from(col);
     sorted.sort();
     out.push(ps.map((p) => sorted[Math.floor(p * (nSims - 1))]));
+  }
+  return out;
+}
+
+/**
+ * Versión de pctPath que opera SOLO sobre un subset de sims (matchedIndices).
+ * Usada cuando hay conditioning activo — los percentiles condicionales se
+ * computan sobre el subset que cumple la vista. Si subsetIndices es null o
+ * length=nSims, equivale a pctPath sobre todas las sims.
+ */
+function pctPathSubset(
+  arr: Float64Array,
+  nSims: number,
+  Hp1: number,
+  ps: readonly number[],
+  subsetIndices: Uint32Array | null,
+): number[][] {
+  if (subsetIndices === null) return pctPath(arr, nSims, Hp1, ps);
+  const n = subsetIndices.length;
+  if (n === 0) {
+    // Sin sims condicionales: devolvemos NaN para todos los percentiles.
+    // El caller decide si mostrar warning o data degradada.
+    return Array.from({ length: Hp1 }, () => ps.map(() => NaN));
+  }
+  const out: number[][] = [];
+  const col = new Float64Array(n);
+  for (let t = 0; t < Hp1; t++) {
+    for (let i = 0; i < n; i++) col[i] = arr[subsetIndices[i] * Hp1 + t];
+    const sorted = Float64Array.from(col);
+    sorted.sort();
+    out.push(ps.map((p) => sorted[Math.floor(p * (n - 1))]));
   }
   return out;
 }
@@ -561,6 +597,46 @@ export default function CaseStudyPanel() {
   //
   // `deposit`: serie temporal del baseline "solo ahorrar sin invertir". Arranca
   // en initialAUM y crece cada mes por el inflow correspondiente. NO es una
+  // Conditioning por vista de inflación. Si está habilitado, computamos
+  // la evaluación de la vista (subset de sims que cumplen) y la usamos
+  // para subsetear los percentiles del chart y los stats. Si está
+  // deshabilitado, viewEvaluation queda null y se opera sobre todas las sims.
+  const viewEvaluation = useMemo(() => {
+    if (!result) return null;
+    if (!config.inflationConditioningEnabled) return null;
+    return evaluateInflationView(
+      result.inflationIndexPath,
+      result.meta.nSims,
+      result.meta.horizonMonths,
+      {
+        windowMonths: config.inflationConditioningHorizonMonths,
+        minPct: config.inflationConditioningMinPct,
+        maxPct: config.inflationConditioningMaxPct,
+      },
+    );
+  }, [
+    result,
+    config.inflationConditioningEnabled,
+    config.inflationConditioningHorizonMonths,
+    config.inflationConditioningMinPct,
+    config.inflationConditioningMaxPct,
+  ]);
+
+  // Distribución unconditional de la inflación en la ventana (siempre, para
+  // que la UI muestre "rango natural del modelo" como referencia visual).
+  // Se consume en el panel de conditioning (Step 4 de PR #21).
+  const unconditionalInflStats = useMemo(() => {
+    if (!result) return null;
+    const ann = computeAnnInflationInWindow(
+      result.inflationIndexPath,
+      result.meta.nSims,
+      result.meta.horizonMonths,
+      config.inflationConditioningHorizonMonths,
+    );
+    return unconditionalInflationDistribution(ann);
+  }, [result, config.inflationConditioningHorizonMonths]);
+  void unconditionalInflStats; // consumed en Step 4 (UI panel conditioning)
+
   // línea horizontal — es una piecewise-linear que sube con cada aporte. Con
   // growth=0 queda casi recta; con growth>0 los escalones se aceleran cada año.
   //
@@ -588,12 +664,17 @@ export default function CaseStudyPanel() {
         htmSource[i] = result.aumPathHTM[i] / f;
       }
     }
+    // Conditioning: si la vista está habilitada y matcheó ≥1 sim, usamos el
+    // subset de matchedIndices. Si no, todas las sims (comportamiento previo).
+    const subsetIndices = viewEvaluation && viewEvaluation.nMatched > 0
+      ? viewEvaluation.matchedIndices
+      : null;
     // AUM "a mercado" — valoración estándar mark-to-market con curva + spread.
-    const netPct = pctPath(aumSource, nSims, Hp1, ps);
+    const netPct = pctPathSubset(aumSource, nSims, Hp1, ps, subsetIndices);
     // AUM "a vencimiento" (HTM) — bullets con haircut por defaults (bootstrap
     // Moody's), curva y spread NO afectan la valuación de bullets vivos.
     // Equity y cash siempre a mercado. Banda típicamente mucho más angosta.
-    const htmPct = pctPath(htmSource, nSims, Hp1, ps);
+    const htmPct = pctPathSubset(htmSource, nSims, Hp1, ps, subsetIndices);
     type Point = {
       month: number;
       // Mark-to-market (valoración estándar)
@@ -654,7 +735,7 @@ export default function CaseStudyPanel() {
       }
     }
     return data;
-  }, [result, config.inflowBaseAnnual, config.inflowGrowth, savedVariants, variantMedians, dpfBaselineBands, returnView]);
+  }, [result, config.inflowBaseAnnual, config.inflowGrowth, savedVariants, variantMedians, dpfBaselineBands, returnView, viewEvaluation]);
 
   // Referencia simple: capital inicial es la única línea horizontal del chart.
   const initialAumM = result ? result.stats.initialAum / 1e6 : 0;
