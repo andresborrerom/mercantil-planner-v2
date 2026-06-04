@@ -119,6 +119,14 @@ export type CashFlowState = {
   cashAum: Float64Array;
   equityAum: Float64Array;
   bulletAums: Float64Array; // [s * nBullets + b]
+  /**
+   * OPCIONAL: AUM del componente HY (GHYG perpetual) dentro del sleeve
+   * "renta fija". null cuando hyWeight=0 (modelo legacy, Python parity).
+   * Cuando no es null, length = nSims. Forma parte del sleeve "bullets"
+   * en el snapshot final pero opera distinto: no tiene vencimiento ni
+   * rollover; se vende ANTES que los bullets en cascada de pago.
+   */
+  hyAum: Float64Array | null;
 
   loanBalance: Float64Array;
   loanPaymentPerMonth: Float64Array;
@@ -174,6 +182,11 @@ export function initializeState(input: {
   initialEquityAum: number | ArrayLike<number>;
   initialBulletAums: ArrayLike<number>;
   nBullets: number;
+  /**
+   * Si > 0, inicializa state.hyAum con este monto en cada sim. Si no se
+   * pasa o es 0, hyAum queda en null (modelo legacy).
+   */
+  initialHyAum?: number;
 }): CashFlowState {
   const { nSims, nBullets } = input;
   const bulletAums = new Float64Array(nSims * nBullets);
@@ -211,12 +224,19 @@ export function initializeState(input: {
   fillScalarOrArray(cashAum, input.initialCashAum);
   fillScalarOrArray(equityAum, input.initialEquityAum);
 
+  let hyAum: Float64Array | null = null;
+  if (input.initialHyAum !== undefined && input.initialHyAum > 0) {
+    hyAum = new Float64Array(nSims);
+    hyAum.fill(input.initialHyAum);
+  }
+
   return {
     nSims,
     nBullets,
     cashAum,
     equityAum,
     bulletAums,
+    hyAum,
     loanBalance: new Float64Array(nSims),
     loanPaymentPerMonth: new Float64Array(nSims),
     loanRateMonthly: new Float64Array(nSims),
@@ -229,14 +249,15 @@ export function initializeState(input: {
   };
 }
 
-/** AUM bruto per sim (no resta loan_balance). */
+/** AUM bruto per sim (no resta loan_balance). Incluye HY si está presente. */
 export function totalAum(state: CashFlowState, out?: Float64Array): Float64Array {
   const dst = out ?? new Float64Array(state.nSims);
+  const hy = state.hyAum;
   for (let s = 0; s < state.nSims; s++) {
     let bSum = 0;
     const off = s * state.nBullets;
     for (let b = 0; b < state.nBullets; b++) bSum += state.bulletAums[off + b];
-    dst[s] = state.cashAum[s] + state.equityAum[s] + bSum;
+    dst[s] = state.cashAum[s] + state.equityAum[s] + bSum + (hy ? hy[s] : 0);
   }
   return dst;
 }
@@ -484,7 +505,9 @@ export function cashflowStep(input: CashFlowStepInput): CashFlowStepLog {
 
       let needed = pmt;
 
-      // Cascada cash → equity → bullet[shortest]
+      // Cascada cash → equity → HY (si existe) → bullet[shortest]
+      // HY se vende a precio de mercado (perpetual ETF, sin par convergence)
+      // antes que los bullets — proteger los bullets largos primero.
       const fromCash = Math.min(needed, state.cashAum[s]);
       state.cashAum[s] -= fromCash;
       needed -= fromCash;
@@ -493,6 +516,15 @@ export function cashflowStep(input: CashFlowStepInput): CashFlowStepLog {
       state.equityAum[s] -= fromEquity;
       needed -= fromEquity;
       fromEquityArr[s] = fromEquity;
+
+      if (state.hyAum && needed > 0) {
+        const fromHy = Math.min(needed, state.hyAum[s]);
+        state.hyAum[s] -= fromHy;
+        needed -= fromHy;
+        // Acumula con forced equity sales para contabilidad sleeve-level
+        // (HY es parte del bullet sleeve; tracking separado se puede
+        // agregar después si necesitamos diagnosticarlo aparte).
+      }
 
       const bIdx =
         typeof bulletShortestSrc === 'number'
@@ -608,17 +640,25 @@ export function cashflowStep(input: CashFlowStepInput): CashFlowStepLog {
         }
       }
 
-      // Distribuir bullets proporcional al peso vivo
+      // Distribuir bullets proporcional al peso vivo del sleeve "renta fija"
+      // (bullets reales + HY si está). Esto preserva la mezcla actual durante
+      // el rebalance — análogo al manejo de equity drift dentro de la banda.
       const bOff = s * nBullets;
       let bSum = 0;
       for (let b = 0; b < nBullets; b++) bSum += state.bulletAums[bOff + b];
-      if (bSum > 0) {
+      const hyVal = state.hyAum ? state.hyAum[s] : 0;
+      const totalRF = bSum + hyVal;
+      if (totalRF > 0) {
         for (let b = 0; b < nBullets; b++) {
-          const prop = state.bulletAums[bOff + b] / bSum;
+          const prop = state.bulletAums[bOff + b] / totalRF;
           state.bulletAums[bOff + b] += prop * toBulletsTotal;
         }
+        if (state.hyAum) {
+          state.hyAum[s] += (hyVal / totalRF) * toBulletsTotal;
+        }
       } else {
-        // Si todos los bullets están en 0, repartir equal-weight
+        // Si todos están en 0, repartir equal-weight entre bullets reales
+        // (HY queda en 0 hasta el siguiente compounding).
         const each = toBulletsTotal / nBullets;
         for (let b = 0; b < nBullets; b++) state.bulletAums[bOff + b] += each;
       }

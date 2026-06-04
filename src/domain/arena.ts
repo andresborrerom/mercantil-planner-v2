@@ -105,6 +105,13 @@ export type ArenaMarket = {
   equityReturns: Float32Array;
   /** Retornos mensuales del cash ticker. [nSims × horizonMonths]. */
   cashReturns: Float32Array;
+  /**
+   * OPCIONAL: retornos mensuales del componente HY (GHYG) del sleeve
+   * de renta fija. [nSims × horizonMonths] sim-major. Solo se usa cuando
+   * `config.rolloverPlan.hyWeight > 0`. Si es null y hyWeight > 0, runArena
+   * lanza.
+   */
+  hyReturns?: Float32Array | null;
   /** Yield paths simulados (necesarios para clasificar régimen y para uy3y del loan). */
   yieldPaths: {
     readonly IRX: Float32Array;
@@ -372,6 +379,26 @@ export function runArena(
     throw new Error('runArena: ningún bullet real activo al inicio');
   }
 
+  // HY split: cuando `plan.hyWeight > 0`, la fracción wHY del sleeve "renta
+  // fija" se va a GHYG (componente perpetual). Los bullets reales reciben
+  // (1 − wHY) × bulletTotalPct. Default wHY=0 → comportamiento idéntico al
+  // modelo previo, Python parity preservada bit-a-bit.
+  const hyWeight = plan.hyWeight ?? 0;
+  if (hyWeight < 0 || hyWeight > 1) {
+    throw new Error(`runArena: plan.hyWeight=${hyWeight} fuera de [0,1]`);
+  }
+  if (hyWeight > 0 && !market.hyReturns) {
+    throw new Error('runArena: plan.hyWeight > 0 requiere market.hyReturns');
+  }
+  if (market.hyReturns && market.hyReturns.length !== nSims * H) {
+    throw new Error(
+      `runArena: market.hyReturns length ${market.hyReturns.length} ≠ nSims*H=${nSims * H}`,
+    );
+  }
+  const igFraction = 1 - hyWeight;
+  const bulletTotalIG = AUM0 * plan.bulletTotalPct * igFraction;
+  const initialHyAum = AUM0 * plan.bulletTotalPct * hyWeight;
+
   const bulletAumInit = new Float64Array(nTotal);
   if (plan.bulletInitialWeights) {
     if (plan.bulletInitialWeights.length !== nReal) {
@@ -383,10 +410,10 @@ export function runArena(
     for (const w of plan.bulletInitialWeights) s += w;
     if (s <= 0) throw new Error('runArena: bulletInitialWeights suma ≤ 0');
     for (let b = 0; b < nReal; b++) {
-      bulletAumInit[b] = (AUM0 * plan.bulletTotalPct * plan.bulletInitialWeights[b]) / s;
+      bulletAumInit[b] = (bulletTotalIG * plan.bulletInitialWeights[b]) / s;
     }
   } else {
-    const share = (AUM0 * plan.bulletTotalPct) / nActiveReal;
+    const share = bulletTotalIG / nActiveReal;
     for (let b = 0; b < nReal; b++) {
       bulletAumInit[b] = activeRealAtStart[b] ? share : 0;
     }
@@ -398,6 +425,7 @@ export function runArena(
     initialEquityAum: AUM0 * plan.equityPct,
     initialBulletAums: bulletAumInit,
     nBullets: nTotal,
+    initialHyAum,
   });
 
   // ----- Output buffers (sim-major: [s * (H+1) + t]) -----
@@ -410,13 +438,16 @@ export function runArena(
 
   const snapshot = (tIdx: number): void => {
     const totals = totalAum(state);
+    const hy = state.hyAum;
     for (let s = 0; s < nSims; s++) {
       aumPath[s * Hp1 + tIdx] = totals[s];
       const off = s * Hp1 * 3 + tIdx * 3;
       let bSum = 0;
       const bOff = s * nTotal;
       for (let b = 0; b < nTotal; b++) bSum += state.bulletAums[bOff + b];
-      sleevePath[off + 0] = bSum;
+      // sleeve[0] = IG bullets + HY component. UI lo muestra como un sleeve
+      // único "Renta fija" (el mix se documenta en SleevesDetailPanel).
+      sleevePath[off + 0] = bSum + (hy ? hy[s] : 0);
       sleevePath[off + 1] = state.equityAum[s];
       sleevePath[off + 2] = state.cashAum[s];
       loanBalancePath[s * Hp1 + tIdx] = state.loanBalance[s];
@@ -442,6 +473,7 @@ export function runArena(
   const market_: CashFlowMarket = { yStateT };
 
   // ----- Main forward loop -----
+  const hyReturns = market.hyReturns ?? null;
   for (let t = 0; t < H; t++) {
     // 1. Aplicar retornos mensuales (USD)
     for (let s = 0; s < nSims; s++) {
@@ -452,6 +484,9 @@ export function runArena(
       }
       state.equityAum[s] *= 1 + market.equityReturns[cell];
       state.cashAum[s] *= 1 + market.cashReturns[cell];
+      if (state.hyAum && hyReturns) {
+        state.hyAum[s] *= 1 + hyReturns[cell];
+      }
     }
 
     // Construir y_state_t (curva al cierre del mes t) per-sim
@@ -721,6 +756,12 @@ export type BuildArenaMarketSpec = {
    */
   yieldPaths: ArenaMarket['yieldPaths'];
   etfReturns: Readonly<Record<string, Float32Array>>;
+  /**
+   * Ticker del componente HY del sleeve "renta fija" (típicamente GHYG).
+   * Si se pasa, el ArenaMarket retornado incluye `hyReturns` extraído de
+   * etfReturns[hyTicker]. Si no se pasa o el ticker no está, hyReturns es null.
+   */
+  hyTicker?: Ticker | null;
 };
 
 /**
@@ -778,10 +819,22 @@ export function buildArenaMarket(spec: BuildArenaMarketSpec): ArenaMarket {
     throw new Error(`buildArenaMarket: cash series length inconsistente`);
   }
 
+  // HY opcional: si el caller indicó hyTicker, lo extraemos de etfReturns.
+  // Si el ticker no está disponible, dejamos hyReturns en null (consumer
+  // decidirá si abortar o degradar; runArena lanza si hyWeight>0 y null).
+  let hyReturns: Float32Array | null = null;
+  if (spec.hyTicker) {
+    const series = spec.etfReturns[spec.hyTicker];
+    if (series && series.length === total) {
+      hyReturns = series;
+    }
+  }
+
   return {
     bulletReturns: bullet.returns,
     equityReturns,
     cashReturns: cashSeries,
+    hyReturns,
     yieldPaths: spec.yieldPaths,
     initialCurve: spec.initialCurve,
     nSims: spec.nSims,

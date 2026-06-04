@@ -58,6 +58,21 @@ export type RolloverPlan = {
   bulletInitialWeights?: ReadonlyArray<number> | null;
   /** Spread inicial sobre la curva treasury, en decimal. Usado en computeBulletReturns. */
   initialSpread: number;
+  /**
+   * OPCIONAL: fracción del sleeve `bulletTotalPct` que se asigna a HY
+   * (GHYG UCITS, perpetual). 0 ≤ hyWeight ≤ 1. Default 0 (todo el sleeve
+   * va al ladder IG iBonds). Cuando > 0, el sleeve "renta fija" se compone:
+   *
+   *   - IG ladder: bulletTotalPct × (1 − hyWeight) × initialAUM
+   *   - HY (GHYG): bulletTotalPct × hyWeight × initialAUM
+   *
+   * El componente HY compounding con `market.hyReturns` (debe estar
+   * presente). No participa del rollover táctico (no tiene vencimientos
+   * naturales) pero sí del cascada de pago (se vende antes que bullets).
+   * Cuando hyWeight=0 → comportamiento idéntico al modelo previo (Python
+   * parity preservada).
+   */
+  hyWeight?: number;
 };
 
 export type RolloverThresholds = {

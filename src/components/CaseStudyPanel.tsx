@@ -36,6 +36,7 @@ import { computeMonthlyInflow } from '../domain/cashflow';
 import { getYieldBounds } from '../domain/bootstrap';
 import RangeSlider from './RangeSlider';
 import EquityMixSelector from './EquityMixSelector';
+import BulletMixSelector from './BulletMixSelector';
 import EstudioMedidaActions from './EstudioMedidaActions';
 import { useEquityCatalogByTicker } from '../hooks/useEquityMeta';
 import { useTTMPanel } from '../hooks/useTTMPanel';
@@ -834,6 +835,19 @@ export default function CaseStudyPanel() {
               hint="banda dura del rollover"
             />
           </div>
+          {/* Mix interno del sleeve de renta fija (bullets).
+              Default: 100% iBonds UCITS USD Corp IG, 0% HY. El cliente puede
+              activar HY (GHYG perpetual) ajustando los pesos. */}
+          <div className="pt-2 border-t border-mercantil-line dark:border-mercantil-dark-line">
+            <div className="text-xs uppercase tracking-wider text-mercantil-slate dark:text-mercantil-dark-slate font-medium mb-2">
+              Renta fija — mix interno
+            </div>
+            <BulletMixSelector
+              value={config.bulletMix as { ticker: 'iBonds' | 'GHYG'; weight: number }[]}
+              onChange={(next) => setConfig({ bulletMix: next })}
+            />
+          </div>
+
           {/* Mix custom del sleeve de equity. Default = USMV 50% / SCHD 50%
               (el del entregable). El selector expone el catálogo completo
               servido por estudios-a-la-medida via GitHub Pages, con fallback
@@ -2223,6 +2237,27 @@ function SleevesDetailPanel({ config }: { config: CaseStudyConfig }) {
               {residencyNote}
             </p>
 
+            {(() => {
+              const ig = config.bulletMix.find((m) => m.ticker === 'iBonds')?.weight ?? 0;
+              const hy = config.bulletMix.find((m) => m.ticker === 'GHYG')?.weight ?? 0;
+              const tot = ig + hy;
+              const wIG = tot > 0 ? ig / tot : 1;
+              const wHY = tot > 0 ? hy / tot : 0;
+              if (wHY < 1e-9) return null;
+              return (
+                <div className="rounded border border-amber-200 dark:border-amber-700/40 bg-amber-50 dark:bg-amber-900/10 p-2">
+                  <div className="font-semibold text-mercantil-ink dark:text-mercantil-dark-ink text-xs uppercase tracking-wider mb-1">
+                    Mix interno renta fija
+                  </div>
+                  <ul className="text-xs space-y-0.5">
+                    <li>• <strong>Ladder IG (iBonds UCITS)</strong>: {Math.round(wIG * 100)}% del sleeve · {(wIG * config.bulletTotalPct * 100).toFixed(1)}% del AUM</li>
+                    <li>• <strong>HY perpetual (GHYG)</strong>: {Math.round(wHY * 100)}% del sleeve · {(wHY * config.bulletTotalPct * 100).toFixed(1)}% del AUM</li>
+                    <li className="text-mercantil-slate/70 dark:text-mercantil-dark-slate/70 italic">GHYG no tiene vencimientos: compounding con retornos observados del ETF. En cascada de pago se vende ANTES que los bullets reales. Para los rollover táctico A/B/C, solo aplica al ladder IG.</li>
+                  </ul>
+                </div>
+              );
+            })()}
+
             <div>
               <div className="font-semibold text-mercantil-ink dark:text-mercantil-dark-ink text-xs uppercase tracking-wider mb-1">
                 Diversificación interna por plazo
@@ -2240,7 +2275,7 @@ function SleevesDetailPanel({ config }: { config: CaseStudyConfig }) {
                 Diversificación interna de crédito
               </div>
               <ul className="text-xs space-y-0.5">
-                <li>• <strong>Calidad crediticia</strong>: investment grade (rating BBB– o superior; promedio del índice ~A3/A-). Sin high yield, sin emerging corporate.</li>
+                <li>• <strong>Calidad crediticia del ladder IG</strong>: investment grade (rating BBB– o superior; promedio del índice ~A3/A-). El componente GHYG (si está activo) suma exposición HY rated BB/B/CCC.</li>
                 <li>• <strong>Multi-emisor</strong>: cada iBond UCITS replica un índice Bloomberg corporativo con ~200–400 emisores (financieros, industriales, healthcare, comunicaciones, utilities, consumo). No hay exposure significativa a un emisor único — el peso máximo por emisor es típicamente &lt;3%.</li>
                 <li>• <strong>Riesgo de default</strong>: tasa histórica IG anual ~0.10–0.30% (depende del rating). En el peor año (2008–2009) los IG tocaron ~0.40%. Sobre 9 bullets × ~300 emisores ≈ 2.700 bonos individuales, el efecto de un default específico es muy pequeño (típicamente recovery ~40% → loss-given-default por default ~0.18% del bono afectado).</li>
                 <li>• <strong>Spread modelado</strong>: {spreadBp} bp sobre la curva Treasury (configurable en panel Avanzado). Media histórica IG corp: ~110 bp; rango típico 70–250 bp; picos crisis: 400–600 bp.</li>

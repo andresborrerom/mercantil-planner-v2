@@ -144,7 +144,25 @@ function JuridicaIPS({ state }: Props) {
     {
       n: '6',
       t: 'Calidad crediticia',
-      b: 'Renta fija exclusivamente investment-grade (rating BBB-/Baa3 o superior al momento de la compra). No se admite high-yield ni emerging-market corporate. Promedio del lineup iBonds: rating cercano a A-/A3 ponderado por exposición.',
+      b: (() => {
+        const hy = config.bulletMix.find((m) => m.ticker === 'GHYG')?.weight ?? 0;
+        const ig = config.bulletMix.find((m) => m.ticker === 'iBonds')?.weight ?? 0;
+        const tot = hy + ig;
+        const wHY = tot > 0 ? hy / tot : 0;
+        if (wHY < 1e-9) {
+          return 'Renta fija exclusivamente investment-grade (rating BBB-/Baa3 o superior al momento de la compra). No se admite high-yield ni emerging-market corporate. Promedio del lineup iBonds: rating cercano a A-/A3 ponderado por exposición.';
+        }
+        const wHYPct = Math.round(wHY * 100);
+        const wIGPct = 100 - wHYPct;
+        return (
+          `La política permite high-yield corporativo USD con cap del ${wHYPct}% del sleeve de renta fija. ` +
+          `Lineup IG (${wIGPct}% del sleeve, ~${(((1 - wHY) * config.bulletTotalPct) * 100).toFixed(0)}% del AUM): ` +
+          `iBonds UCITS USD Corp BBB-/Baa3+ (promedio del índice ~A-/A3). ` +
+          `Componente HY (${wHYPct}% del sleeve, ~${((wHY * config.bulletTotalPct) * 100).toFixed(0)}% del AUM): ` +
+          `GHYG (iShares Global HY Corp UCITS, ratings BB/B/CCC diversificados). ` +
+          `No se admite emerging-market corporate ni convertibles.`
+        );
+      })(),
     },
     {
       n: '7',
