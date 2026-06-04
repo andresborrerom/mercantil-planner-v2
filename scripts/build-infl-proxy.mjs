@@ -7,17 +7,15 @@
  * usa IXC (Energy) como proxy, sesgando la CAGR proyectada hacia abajo (~4.3%)
  * cuando el INFL real post-launch lleva 17.89% CAGR.
  *
- * Solución: basket de 5 ETFs cuyas exposiciones replican el modelo de negocio:
- *   - BIL (T-Bills 1-3m)             ← dampener de beta (cash-like)
+ * Solución: basket de 4 ETFs cuyas exposiciones replican el modelo de negocio:
  *   - IXC (energy global)            ← land/royalty oil&gas (32% INFL real)
  *   - GDX (gold miners)              ← precious metals royalty (15%)
  *   - IAI (US broker/exchange)       ← exchanges (15%)
  *   - SPY (broad US)                 ← catch-all (28%: utilities, ag, residual)
  *
- * (MXI descartado en v2: con peso 1.9% en NNLS no agregaba señal, solo
- * varianza estimada. BIL agregado en v3: el optimizador exageraba beta sin
- * componente low-vol — exageraba subidas y bajadas. BIL le da grado de libertad
- * para dampear.)
+ * Post-fit: SHRINKAGE_FACTOR aplicado mes-por-mes a los retornos sintéticos
+ * (β-dampening manual). 0.92 = INFL real exhibe ~92% del movimiento del
+ * basket puro (regression-free, observation-based del v2).
  *
  * Pesos: NNLS con Σw=1 y w≥0, fitteado en overlap 2021-02 → 2026-04.
  * Train/holdout split: 80/20 para reportar tracking error out-of-sample.
@@ -47,6 +45,10 @@ if (!TOKEN) {
   console.error('[build-infl-proxy] Falta EODHD_API_KEY en env');
   process.exit(1);
 }
+
+// β-shrinkage post-fit. Multiplica cada return sintético mensual por este factor.
+// 0.92 calibrado por observación de v2 (basket exageraba subidas/bajadas de INFL).
+const SHRINKAGE_FACTOR = 0.92;
 
 // ---------- Fetch helpers ----------
 
@@ -196,14 +198,13 @@ function betaTo(y, x) {
 // ---------- Main ----------
 
 async function main() {
-  // 1. Leer CSV: BIL, IXC, SPY ya están. INFL también (63 reales + 181 NaN).
+  // 1. Leer CSV: IXC, SPY ya están. INFL también (63 reales + 181 NaN).
   console.log('[step 1] Leyendo CSV existente…');
   const { header, rows } = readCsv(CSV_PATH);
-  const bilRet = getCol(header, rows, 'BIL');
   const ixcRet = getCol(header, rows, 'IXC');
   const spyRet = getCol(header, rows, 'SPY');
   const inflReal = getCol(header, rows, 'INFL');
-  console.log(`  BIL: ${bilRet.size} · IXC: ${ixcRet.size} · SPY: ${spyRet.size} · INFL real: ${inflReal.size}`);
+  console.log(`  IXC: ${ixcRet.size} · SPY: ${spyRet.size} · INFL real: ${inflReal.size}`);
 
   // 2. Fetchear GDX e IAI desde EODHD
   console.log('[step 2] Fetcheando GDX e IAI desde EODHD…');
@@ -214,10 +215,10 @@ async function main() {
   console.log(`  GDX: ${gdxRet.size} meses · IAI: ${iaiRet.size} meses`);
 
   // 3. Construir matriz X (componentes) y vector y (INFL real) para el overlap
-  // Overlap = meses donde los 5 componentes + INFL real tienen valor
+  // Overlap = meses donde los 4 componentes + INFL real tienen valor
   const allYms = [...inflReal.keys()].sort();
   const overlapYms = allYms.filter((ym) =>
-    bilRet.has(ym) && ixcRet.has(ym) && spyRet.has(ym) && gdxRet.has(ym) && iaiRet.has(ym)
+    ixcRet.has(ym) && spyRet.has(ym) && gdxRet.has(ym) && iaiRet.has(ym)
   );
   console.log(`[step 3] Overlap completo: ${overlapYms.length} meses (${overlapYms[0]} → ${overlapYms[overlapYms.length-1]})`);
 
@@ -228,8 +229,8 @@ async function main() {
   console.log(`  Train: ${trainYms.length} meses (${trainYms[0]} → ${trainYms[trainYms.length-1]})`);
   console.log(`  Holdout: ${holdoutYms.length} meses (${holdoutYms[0]} → ${holdoutYms[holdoutYms.length-1]})`);
 
-  const componentNames = ['BIL', 'IXC', 'GDX', 'IAI', 'SPY'];
-  const components = [bilRet, ixcRet, gdxRet, iaiRet, spyRet];
+  const componentNames = ['IXC', 'GDX', 'IAI', 'SPY'];
+  const components = [ixcRet, gdxRet, iaiRet, spyRet];
 
   const buildXY = (yms) => {
     const X = yms.map((ym) => components.map((m) => m.get(ym)));
@@ -270,7 +271,7 @@ async function main() {
   // 7. Computar serie sintética COMPLETA (2006-01 → 2026-04)
   // Para meses donde algún componente no tiene data, renormalizamos los pesos
   // de los componentes disponibles (Σ_avail = 1). Cero NaN en el output.
-  console.log('[step 6] Computando serie sintética completa (con renormalización)…');
+  console.log(`[step 6] Computando serie sintética completa (con renorm + shrinkage ${SHRINKAGE_FACTOR})…`);
   const allCsvYms = rows.map((r) => r[0]);
   const synthetic = new Map();
   let nFullBasket = 0, nRenorm = 0, nNoData = 0;
@@ -282,7 +283,7 @@ async function main() {
     if (wSum <= 1e-12) { nNoData++; continue; }
     let ret = 0;
     for (const i of avail) ret += (w[i] / wSum) * components[i].get(ym);
-    synthetic.set(ym, ret);
+    synthetic.set(ym, ret * SHRINKAGE_FACTOR);
     if (avail.length === components.length) {
       nFullBasket++;
     } else {
