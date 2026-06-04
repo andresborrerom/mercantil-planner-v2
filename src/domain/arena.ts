@@ -165,6 +165,12 @@ export type ArenaStats = {
   forcedEquityMed: number;
   forcedBulletMed: number;
   loanShortfallMed: number;
+  /**
+   * Cuando el evento de financiamiento es 'sell', el monto total vendido y
+   * la ganancia realizada (mediana cross-sims). En 'loan' ambos son 0.
+   */
+  soldOnEventMed: number;
+  realizedGainOnSaleMed: number;
 };
 
 export type ArenaOutput = {
@@ -438,6 +444,10 @@ export function runArena(
     }
   }
 
+  // Cost basis tracker se inicializa con AUM total. Se usa cuando el evento
+  // de financiamiento es 'sell' para computar realized gain. Si nadie lo
+  // consulta (método='loan' default), simplemente se incrementa con inflows
+  // pero no afecta nada del resultado — paridad Python preservada.
   const state = initializeState({
     nSims,
     initialCashAum: AUM0 * plan.cashPct,
@@ -445,6 +455,7 @@ export function runArena(
     initialBulletAums: bulletAumInit,
     nBullets: nTotal,
     initialHyAum,
+    initialAumForCostBasis: AUM0,
   });
 
   // ----- Output buffers (sim-major: [s * (H+1) + t]) -----
@@ -736,6 +747,8 @@ export function runArena(
     forcedEquityMed: median(state.cumForcedEquitySales),
     forcedBulletMed: median(state.cumForcedBulletSales),
     loanShortfallMed: median(state.cumLoanShortfall),
+    soldOnEventMed: median(state.cumSoldOnEvent),
+    realizedGainOnSaleMed: median(state.cumRealizedGainOnSale),
   };
 
   const out: ArenaOutput = {

@@ -944,7 +944,7 @@ export default function CaseStudyPanel() {
           </div>
         </fieldset>
 
-        {/* --- Loan --- */}
+        {/* --- Evento de financiamiento (préstamo o venta) --- */}
         <fieldset className="space-y-2">
           <legend className="text-xs uppercase tracking-wider text-mercantil-slate dark:text-mercantil-dark-slate font-medium">
             <label className="flex items-center gap-2 cursor-pointer select-none">
@@ -954,39 +954,67 @@ export default function CaseStudyPanel() {
                 onChange={(e) => setConfig({ loanEnabled: e.target.checked })}
                 className="accent-mercantil-orange h-3.5 w-3.5"
               />
-              Préstamo bancario (opcional)
+              Evento de financiamiento (opcional)
             </label>
           </legend>
           {config.loanEnabled && (
-            <div className="grid grid-cols-3 gap-3 pl-5">
-              <NumInput
-                label="Mes de disparo"
-                value={config.loanTriggerMonth}
-                onChange={(v) => setConfig({ loanTriggerMonth: Math.round(v) })}
-                step={6}
-                min={0}
-                max={config.horizonMonths - 1}
-                hint={`año ${(config.loanTriggerMonth / 12).toFixed(1)}`}
-              />
-              <NumInput
-                label="Monto % AUM"
-                value={config.loanAmountPctAum * 100}
-                onChange={(v) => setConfig({ loanAmountPctAum: v / 100 })}
-                step={1}
-                min={0}
-                max={65}
-                suffix="%"
-                hint="hasta 65% (oferta Mercantil)"
-              />
-              <NumInput
-                label="Plazo"
-                value={config.loanTermMonths}
-                onChange={(v) => setConfig({ loanTermMonths: Math.round(v) })}
-                step={6}
-                min={6}
-                max={120}
-                suffix="m"
-              />
+            <div className="pl-5 space-y-3">
+              <div>
+                <label className="flex flex-col text-xs">
+                  <span className="font-medium text-mercantil-slate dark:text-mercantil-dark-slate mb-1">
+                    Método
+                    <span className="ml-1 text-mercantil-slate/60 dark:text-mercantil-dark-slate/60 font-normal">
+                      (cómo se cubre la necesidad de capital)
+                    </span>
+                  </span>
+                  <select
+                    value={config.loanMethod}
+                    onChange={(e) => setConfig({ loanMethod: e.target.value as 'loan' | 'sell' })}
+                    className="px-2 py-1 rounded border border-mercantil-line dark:border-mercantil-dark-line bg-white dark:bg-mercantil-dark-panel text-mercantil-ink dark:text-mercantil-dark-ink text-sm"
+                  >
+                    <option value="loan">Préstamo bancario — AUM intacto, deuda servida con cashflow</option>
+                    <option value="sell">Vender — AUM cae en escalón, sin deuda</option>
+                  </select>
+                </label>
+                {config.loanMethod === 'sell' && (
+                  <p className="text-[11px] italic text-mercantil-slate dark:text-mercantil-dark-slate mt-1">
+                    Se vende el monto vía cascada cash → equity → HY → bullets (corto primero).
+                    La ganancia realizada (sobre el cost basis del aporte acumulado) se reporta en el panel de stats.
+                  </p>
+                )}
+              </div>
+              <div className={`grid ${config.loanMethod === 'loan' ? 'grid-cols-3' : 'grid-cols-2'} gap-3`}>
+                <NumInput
+                  label="Mes de disparo"
+                  value={config.loanTriggerMonth}
+                  onChange={(v) => setConfig({ loanTriggerMonth: Math.round(v) })}
+                  step={6}
+                  min={0}
+                  max={config.horizonMonths - 1}
+                  hint={`año ${(config.loanTriggerMonth / 12).toFixed(1)}`}
+                />
+                <NumInput
+                  label="Monto % AUM"
+                  value={config.loanAmountPctAum * 100}
+                  onChange={(v) => setConfig({ loanAmountPctAum: v / 100 })}
+                  step={1}
+                  min={0}
+                  max={65}
+                  suffix="%"
+                  hint={config.loanMethod === 'loan' ? 'hasta 65% (oferta Mercantil)' : 'a vender del AUM'}
+                />
+                {config.loanMethod === 'loan' && (
+                  <NumInput
+                    label="Plazo"
+                    value={config.loanTermMonths}
+                    onChange={(v) => setConfig({ loanTermMonths: Math.round(v) })}
+                    step={6}
+                    min={6}
+                    max={120}
+                    suffix="m"
+                  />
+                )}
+              </div>
             </div>
           )}
         </fieldset>
@@ -1150,16 +1178,32 @@ export default function CaseStudyPanel() {
           {/* Rollover regimes — panel explicativo con barras + cards collapsible */}
           <RegimesDetailPanel result={result} config={config} totalEvents={totalEvents} />
 
-          {/* Préstamo costos */}
+          {/* Costos del evento de financiamiento */}
           <div className="bg-white dark:bg-mercantil-dark-panel rounded-lg border border-mercantil-line dark:border-mercantil-dark-line p-5">
             <h3 className="text-sm uppercase tracking-wider text-mercantil-slate dark:text-mercantil-dark-slate font-medium mb-3">
-              Préstamo: costos & ventas forzadas (medianas)
+              {config.loanEnabled && config.loanMethod === 'sell'
+                ? 'Venta: monto realizado & ganancia (medianas)'
+                : 'Préstamo: costos & ventas forzadas (medianas)'}
             </h3>
             <div className="space-y-2 text-sm">
-              <LoanRow label="Interés total pagado" value={fmtMoney(result.stats.loanCumInterestMed)} />
-              <LoanRow label="Ventas forzadas equity" value={fmtMoney(result.stats.forcedEquityMed)} />
-              <LoanRow label="Ventas forzadas bullet" value={fmtMoney(result.stats.forcedBulletMed)} />
-              <LoanRow label="Shortfall acumulado" value={fmtMoney(result.stats.loanShortfallMed)} />
+              {config.loanEnabled && config.loanMethod === 'sell' ? (
+                <>
+                  <LoanRow label="Monto vendido en el evento" value={fmtMoney(result.stats.soldOnEventMed)} />
+                  <LoanRow
+                    label="Ganancia realizada (vs cost basis)"
+                    value={fmtMoney(result.stats.realizedGainOnSaleMed)}
+                  />
+                  <LoanRow label="Ventas forzadas equity (otras causas)" value={fmtMoney(result.stats.forcedEquityMed)} />
+                  <LoanRow label="Ventas forzadas bullet (otras causas)" value={fmtMoney(result.stats.forcedBulletMed)} />
+                </>
+              ) : (
+                <>
+                  <LoanRow label="Interés total pagado" value={fmtMoney(result.stats.loanCumInterestMed)} />
+                  <LoanRow label="Ventas forzadas equity" value={fmtMoney(result.stats.forcedEquityMed)} />
+                  <LoanRow label="Ventas forzadas bullet" value={fmtMoney(result.stats.forcedBulletMed)} />
+                  <LoanRow label="Shortfall acumulado" value={fmtMoney(result.stats.loanShortfallMed)} />
+                </>
+              )}
             </div>
           </div>
 

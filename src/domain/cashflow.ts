@@ -40,6 +40,19 @@ export type LoanEvent = {
   termMonths: number;
   /** Solo 'amortizing' por ahora. */
   repaymentMode: 'amortizing';
+  /**
+   * Método de financiamiento de la necesidad de capital:
+   *  - 'loan' (default): el endowment pide préstamo bancario por amountPctAum
+   *    del AUM al disparo. La deuda se sirve mes a mes via cascada cash →
+   *    equity → HY → bullet[shortest]. El AUM se mantiene intacto al disparo.
+   *  - 'sell': el endowment VENDE amountPctAum del AUM directamente al
+   *    disparo (sin deuda). La venta sigue la misma cascada. El AUM cae en
+   *    escalón el día del trigger. No hay intereses ni cuotas posteriores.
+   *
+   * Permite comparar las dos estrategias para una necesidad de capital
+   * conocida (e.g., financiar nueva ala del colegio): ¿prestamo o liquidar?
+   */
+  method?: 'loan' | 'sell';
 };
 
 /**
@@ -61,6 +74,7 @@ export function makeLoanEvent(partial: {
   rateBase?: 'sofr' | 'uy3y';
   termMonths?: number;
   repaymentMode?: 'amortizing';
+  method?: 'loan' | 'sell';
 }): LoanEvent {
   const ev: LoanEvent = {
     triggerMonth: partial.triggerMonth,
@@ -70,6 +84,7 @@ export function makeLoanEvent(partial: {
     rateBase: partial.rateBase ?? 'sofr',
     termMonths: partial.termMonths ?? 36,
     repaymentMode: partial.repaymentMode ?? 'amortizing',
+    method: partial.method ?? 'loan',
   };
   if (ev.amountPctAum < 0 || ev.amountPctAum > 0.65) {
     throw new Error(
@@ -138,6 +153,23 @@ export type CashFlowState = {
   cumForcedEquitySales: Float64Array;
   cumForcedBulletSales: Float64Array;
   cumLoanShortfall: Float64Array;
+  /**
+   * Realized gain per sim cuando el evento de financiamiento es 'sell'.
+   * Es el monto vendido menos el cost basis estimado (cost basis = initial
+   * sleeve + aportes acumulados ponderados por allocation original). Solo
+   * se actualiza en el mes del trigger si method='sell'. En 'loan' queda 0.
+   */
+  cumRealizedGainOnSale: Float64Array;
+  /**
+   * Monto total vendido en el evento 'sell' per sim (USD). 0 si no aplica.
+   */
+  cumSoldOnEvent: Float64Array;
+  /**
+   * Cost basis del endowment: capital aportado acumulado (initial AUM +
+   * aportes mes a mes). Permite computar realized gain cuando se vende
+   * porción del AUM. Si no se inicializa (legacy), queda null.
+   */
+  costBasisTotal: Float64Array | null;
 };
 
 export type CashFlowStepLog = {
@@ -187,6 +219,12 @@ export function initializeState(input: {
    * pasa o es 0, hyAum queda en null (modelo legacy).
    */
   initialHyAum?: number;
+  /**
+   * AUM inicial total para inicializar cost basis tracker (initialAum + aportes
+   * acumulados). Si no se pasa, costBasisTotal queda null (modelo legacy,
+   * paridad Python).
+   */
+  initialAumForCostBasis?: number;
 }): CashFlowState {
   const { nSims, nBullets } = input;
   const bulletAums = new Float64Array(nSims * nBullets);
@@ -230,6 +268,12 @@ export function initializeState(input: {
     hyAum.fill(input.initialHyAum);
   }
 
+  let costBasisTotal: Float64Array | null = null;
+  if (input.initialAumForCostBasis !== undefined && input.initialAumForCostBasis > 0) {
+    costBasisTotal = new Float64Array(nSims);
+    costBasisTotal.fill(input.initialAumForCostBasis);
+  }
+
   return {
     nSims,
     nBullets,
@@ -246,6 +290,9 @@ export function initializeState(input: {
     cumForcedEquitySales: new Float64Array(nSims),
     cumForcedBulletSales: new Float64Array(nSims),
     cumLoanShortfall: new Float64Array(nSims),
+    cumRealizedGainOnSale: new Float64Array(nSims),
+    cumSoldOnEvent: new Float64Array(nSims),
+    costBasisTotal,
   };
 }
 
@@ -418,58 +465,123 @@ export function cashflowStep(input: CashFlowStepInput): CashFlowStepLog {
   const { nSims, nBullets } = state;
 
   // -----------------------------------------------------------------
-  // 1. Trigger préstamo (solo si nadie tiene préstamo activo).
+  // 1. Trigger del evento de financiamiento (préstamo o venta).
+  //    Default method='loan' preserva paridad Python bit-a-bit.
   // -----------------------------------------------------------------
   if (loanEvent !== null && t === loanEvent.triggerMonth) {
-    let anyActive = false;
-    for (let s = 0; s < nSims; s++) {
-      if (state.loanActive[s]) {
-        anyActive = true;
-        break;
-      }
-    }
-    if (!anyActive) {
-      // Tasa base según loanEvent.rateBase:
-      //   "sofr" (default 2026): IRX como proxy de SOFR (matchea oferta
-      //                          Mercantil SOFR + 150bps).
-      //   "uy3y": UST3Y interpolada (comportamiento histórico antes rev 2026).
-      let baseRate: Float64Array;
-      if (loanEvent.rateBase === 'sofr') {
-        baseRate = new Float64Array(nSims);
-        for (let s = 0; s < nSims; s++) baseRate[s] = market.yStateT[s * 4 + 0]; // IRX
-      } else {
-        baseRate = interpolateUy3Y(market.yStateT, nSims);
-      }
-      const rateAnnual = computeLoanRate(baseRate, loanEvent.rateSpreadBp, loanEvent.rateFactor) as Float64Array;
+    const method = loanEvent.method ?? 'loan';
+    if (method === 'sell') {
+      // ---- Rama VENDER ----
+      // Al disparo: retirar amountPctAum × totalAum vía cascada
+      // cash → equity → HY → bullet[shortest]. Sin deuda, sin intereses.
+      // Tracking de monto vendido y realized gain (si cost basis tracked).
       const totals = totalAum(state);
-      const amounts = new Float64Array(nSims);
-      const rateMonthly = new Float64Array(nSims);
-      for (let s = 0; s < nSims; s++) {
-        amounts[s] = totals[s] * loanEvent.amountPctAum;
-        rateMonthly[s] = rateAnnual[s] / 12.0;
-      }
-      const pmt = computeAmortizingPayment(amounts, rateMonthly, loanEvent.termMonths) as Float64Array;
+      const nBulletsLocal = state.nBullets;
+      const bulletShortestSrcLocal: number | ArrayLike<number> = bulletShortestSrc;
 
       for (let s = 0; s < nSims; s++) {
-        state.loanBalance[s] = amounts[s];
-        state.loanPaymentPerMonth[s] = pmt[s];
-        state.loanRateMonthly[s] = rateMonthly[s];
-        state.loanMonthsRemaining[s] = loanEvent.termMonths;
-        state.loanActive[s] = 1;
-      }
+        let needed = totals[s] * loanEvent.amountPctAum;
+        const soldOriginal = needed;
 
-      log.loanTriggered = true;
-      log.loanAmountMed = median(amounts);
-      log.loanRateAnnualMed = median(rateAnnual);
-      log.loanPaymentMed = median(pmt);
+        const fromCash = Math.min(needed, state.cashAum[s]);
+        state.cashAum[s] -= fromCash;
+        needed -= fromCash;
+
+        const fromEquity = Math.min(needed, state.equityAum[s]);
+        state.equityAum[s] -= fromEquity;
+        needed -= fromEquity;
+
+        if (state.hyAum && needed > 0) {
+          const fromHy = Math.min(needed, state.hyAum[s]);
+          state.hyAum[s] -= fromHy;
+          needed -= fromHy;
+        }
+
+        if (needed > 0) {
+          const bIdx =
+            typeof bulletShortestSrcLocal === 'number'
+              ? bulletShortestSrcLocal
+              : Number(bulletShortestSrcLocal[s]);
+          const bOff = s * nBulletsLocal + bIdx;
+          const fromBullet = Math.min(needed, state.bulletAums[bOff]);
+          state.bulletAums[bOff] -= fromBullet;
+          needed -= fromBullet;
+        }
+
+        const sold = soldOriginal - needed; // efectivamente vendido
+        state.cumSoldOnEvent[s] += sold;
+
+        // Realized gain: solo si cost basis está tracked. Cost basis vendido
+        // = (sold / totalAum) × costBasisTotal. Realized gain = sold − costBasisSold.
+        if (state.costBasisTotal !== null && totals[s] > 1e-9) {
+          const saleAsPctOfAum = sold / totals[s];
+          const costBasisSold = state.costBasisTotal[s] * saleAsPctOfAum;
+          state.cumRealizedGainOnSale[s] += sold - costBasisSold;
+          // Reducir cost basis proporcionalmente
+          state.costBasisTotal[s] -= costBasisSold;
+        }
+      }
+      log.loanTriggered = true; // reusamos el flag (UI/PDF dependen de él)
+      // Mediana del monto vendido
+      const sortedSold = Float64Array.from(state.cumSoldOnEvent);
+      sortedSold.sort();
+      log.loanAmountMed = sortedSold[Math.floor(0.5 * (nSims - 1))];
+    } else {
+      // ---- Rama PRÉSTAMO (default) ----
+      let anyActive = false;
+      for (let s = 0; s < nSims; s++) {
+        if (state.loanActive[s]) {
+          anyActive = true;
+          break;
+        }
+      }
+      if (!anyActive) {
+        // Tasa base según loanEvent.rateBase:
+        //   "sofr" (default 2026): IRX como proxy de SOFR (matchea oferta
+        //                          Mercantil SOFR + 150bps).
+        //   "uy3y": UST3Y interpolada (comportamiento histórico antes rev 2026).
+        let baseRate: Float64Array;
+        if (loanEvent.rateBase === 'sofr') {
+          baseRate = new Float64Array(nSims);
+          for (let s = 0; s < nSims; s++) baseRate[s] = market.yStateT[s * 4 + 0]; // IRX
+        } else {
+          baseRate = interpolateUy3Y(market.yStateT, nSims);
+        }
+        const rateAnnual = computeLoanRate(baseRate, loanEvent.rateSpreadBp, loanEvent.rateFactor) as Float64Array;
+        const totals = totalAum(state);
+        const amounts = new Float64Array(nSims);
+        const rateMonthly = new Float64Array(nSims);
+        for (let s = 0; s < nSims; s++) {
+          amounts[s] = totals[s] * loanEvent.amountPctAum;
+          rateMonthly[s] = rateAnnual[s] / 12.0;
+        }
+        const pmt = computeAmortizingPayment(amounts, rateMonthly, loanEvent.termMonths) as Float64Array;
+
+        for (let s = 0; s < nSims; s++) {
+          state.loanBalance[s] = amounts[s];
+          state.loanPaymentPerMonth[s] = pmt[s];
+          state.loanRateMonthly[s] = rateMonthly[s];
+          state.loanMonthsRemaining[s] = loanEvent.termMonths;
+          state.loanActive[s] = 1;
+        }
+
+        log.loanTriggered = true;
+        log.loanAmountMed = median(amounts);
+        log.loanRateAnnualMed = median(rateAnnual);
+        log.loanPaymentMed = median(pmt);
+      }
     }
   }
 
   // -----------------------------------------------------------------
   // 2. Inflow del mes (mismo monto en todas las sims, determinístico).
+  //    El inflow incrementa cost basis (es capital aportado, no ganancia).
   // -----------------------------------------------------------------
   const inflowT = computeMonthlyInflow(t, inflowBaseAnnual, inflowGrowth);
-  for (let s = 0; s < nSims; s++) state.cashAum[s] += inflowT;
+  for (let s = 0; s < nSims; s++) {
+    state.cashAum[s] += inflowT;
+    if (state.costBasisTotal !== null) state.costBasisTotal[s] += inflowT;
+  }
   log.inflow = inflowT;
 
   // -----------------------------------------------------------------

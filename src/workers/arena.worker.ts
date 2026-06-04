@@ -110,6 +110,11 @@ export type ArenaJobInput = {
         rateSpreadBp?: number;
         rateBase?: 'sofr' | 'uy3y';
         termMonths?: number;
+        /**
+         * 'loan' (default) = préstamo amortizing, deuda servida mes a mes.
+         * 'sell' = venta inmediata vía cascada, sin deuda, AUM cae en escalón.
+         */
+        method?: 'loan' | 'sell';
       };
 
   // ---- Market dimensions ----
@@ -401,6 +406,7 @@ function executeJob(id: string, payload: ArenaJobInput): {
         rateSpreadBp: payload.loanEvent.rateSpreadBp,
         rateBase: payload.loanEvent.rateBase,
         termMonths: payload.loanEvent.termMonths,
+        method: payload.loanEvent.method,
       })
     : null;
   const tArena0 =
@@ -648,6 +654,8 @@ function applyAllInFee(
     forcedEquityMed: arenaOut.stats.forcedEquityMed,
     forcedBulletMed: arenaOut.stats.forcedBulletMed,
     loanShortfallMed: arenaOut.stats.loanShortfallMed,
+    soldOnEventMed: arenaOut.stats.soldOnEventMed,
+    realizedGainOnSaleMed: arenaOut.stats.realizedGainOnSaleMed,
   };
 
   return {
