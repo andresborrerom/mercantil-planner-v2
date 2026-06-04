@@ -14,7 +14,7 @@
  */
 import { useEffect, useRef, useState } from 'react';
 
-export type RealAssetsMixTicker = 'RWO' | 'IEI' | 'IXC';
+export type RealAssetsMixTicker = 'RWO' | 'IEI' | 'IXC' | 'INFL';
 export type RealAssetsMixItem = { ticker: RealAssetsMixTicker; weight: number };
 
 type Props = {
@@ -22,27 +22,32 @@ type Props = {
   onChange: (next: RealAssetsMixItem[]) => void;
 };
 
-const TICKERS: RealAssetsMixTicker[] = ['RWO', 'IEI', 'IXC'];
+const TICKERS: RealAssetsMixTicker[] = ['INFL', 'RWO', 'IEI', 'IXC'];
 
 const LABELS: Record<RealAssetsMixTicker, { name: string; subtitle: string }> = {
+  INFL: {
+    name: 'INFL — Equity anti-inflación',
+    subtitle: 'Horizon Kinetics Inflation Beneficiaries. Empresas asset-light, royalty companies, productores de commodities que se BENEFICIAN de inflación. Data real desde 2021-01 (lanzamiento del ETF); pre-2021 imputado con IXC (Energy) como proxy.',
+  },
   RWO: {
     name: 'RWO — REITs globales',
-    subtitle: 'SPDR Dow Jones Global REIT (real estate). Cobertura US + desarrollados + emergentes. Sensible a tasas y demanda real.',
+    subtitle: 'SPDR Dow Jones Global REIT (real estate). Cobertura US + desarrollados + emergentes. Rentas tied-to-inflation pero sensible a tasas (drag cuando suben).',
   },
   IEI: {
     name: 'IEI — Treasury 3-7y (proxy de TIPS sintético)',
-    subtitle: 'iShares Treasury 3-7y. MVP: usamos esta serie como proxy de TIPS sintético. Captura duración intermedia. En PR follow-up agregaremos TIPS UCITS reales (ITPS) desde EODHD.',
+    subtitle: 'iShares Treasury 3-7y. MVP: usamos esta serie como proxy de TIPS sintético. En PR follow-up agregaremos TIPS UCITS reales (ITPS) desde EODHD.',
   },
   IXC: {
     name: 'IXC — Energy global (proxy de commodities)',
-    subtitle: 'iShares Global Energy. MVP: usamos esta serie como proxy de exposición a commodities reales. En PR follow-up agregaremos Gold (SGLN) e Infrastructure (INFR).',
+    subtitle: 'iShares Global Energy. MVP: proxy de exposición a commodities reales. En PR follow-up agregaremos Gold (SGLN) e Infrastructure (INFR).',
   },
 };
 
 const DEFAULT_MIX: RealAssetsMixItem[] = [
-  { ticker: 'RWO', weight: 0.40 },
-  { ticker: 'IEI', weight: 0.40 },
-  { ticker: 'IXC', weight: 0.20 },
+  { ticker: 'INFL', weight: 0.30 },
+  { ticker: 'RWO', weight: 0.30 },
+  { ticker: 'IEI', weight: 0.25 },
+  { ticker: 'IXC', weight: 0.15 },
 ];
 
 function rebalance(
@@ -74,13 +79,15 @@ export default function RealAssetsMixSelector({ value, onChange }: Props) {
   const isDefault =
     totalW > 0 &&
     (() => {
+      const inf = value.find((m) => m.ticker === 'INFL');
       const r = value.find((m) => m.ticker === 'RWO');
       const i = value.find((m) => m.ticker === 'IEI');
       const x = value.find((m) => m.ticker === 'IXC');
-      return r && i && x &&
-        Math.abs(r.weight / totalW - 0.40) < 1e-2 &&
-        Math.abs(i.weight / totalW - 0.40) < 1e-2 &&
-        Math.abs(x.weight / totalW - 0.20) < 1e-2;
+      return inf && r && i && x &&
+        Math.abs(inf.weight / totalW - 0.30) < 1e-2 &&
+        Math.abs(r.weight / totalW - 0.30) < 1e-2 &&
+        Math.abs(i.weight / totalW - 0.25) < 1e-2 &&
+        Math.abs(x.weight / totalW - 0.15) < 1e-2;
     })();
 
   const getWeight = (ticker: RealAssetsMixTicker): number =>
@@ -104,7 +111,7 @@ export default function RealAssetsMixSelector({ value, onChange }: Props) {
           </strong>
           {isDefault && (
             <span className="ml-2 text-mercantil-slate/70 dark:text-mercantil-dark-slate/70 italic">
-              (default — 40/40/20)
+              (default — 30/30/25/15)
             </span>
           )}
         </div>
@@ -114,7 +121,7 @@ export default function RealAssetsMixSelector({ value, onChange }: Props) {
             onClick={reset}
             className="text-[11px] text-mercantil-orange hover:underline"
           >
-            Reset al default (40/40/20)
+            Reset al default (30/30/25/15)
           </button>
         )}
       </div>

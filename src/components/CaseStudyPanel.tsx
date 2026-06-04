@@ -1133,7 +1133,7 @@ export default function CaseStudyPanel() {
                 Activos reales — mix interno (anti-inflación)
               </div>
               <RealAssetsMixSelector
-                value={config.realAssetsMix as { ticker: 'RWO' | 'IEI' | 'IXC'; weight: number }[]}
+                value={config.realAssetsMix as { ticker: 'RWO' | 'IEI' | 'IXC' | 'INFL'; weight: number }[]}
                 onChange={(next) => setConfig({ realAssetsMix: next })}
               />
             </div>
@@ -3106,6 +3106,7 @@ function SleevesDetailPanel({ config }: { config: CaseStudyConfig }) {
         {config.realAssetsPct > 0 && (() => {
           const raPct = (config.realAssetsPct * 100).toFixed(0);
           const mixTot = config.realAssetsMix.reduce((s, m) => s + m.weight, 0);
+          const wINFL = mixTot > 0 ? (config.realAssetsMix.find((m) => m.ticker === 'INFL')?.weight ?? 0) / mixTot : 0;
           const wRWO = mixTot > 0 ? (config.realAssetsMix.find((m) => m.ticker === 'RWO')?.weight ?? 0) / mixTot : 0;
           const wIEI = mixTot > 0 ? (config.realAssetsMix.find((m) => m.ticker === 'IEI')?.weight ?? 0) / mixTot : 0;
           const wIXC = mixTot > 0 ? (config.realAssetsMix.find((m) => m.ticker === 'IXC')?.weight ?? 0) / mixTot : 0;
@@ -3126,7 +3127,7 @@ function SleevesDetailPanel({ config }: { config: CaseStudyConfig }) {
                     {raPct}% del AUM
                   </span>
                   <span className="text-xs text-mercantil-slate/70 dark:text-mercantil-dark-slate/70">
-                    · RWO {Math.round(wRWO * 100)}% · IEI {Math.round(wIEI * 100)}% · IXC {Math.round(wIXC * 100)}%
+                    · INFL {Math.round(wINFL * 100)}% · RWO {Math.round(wRWO * 100)}% · IEI {Math.round(wIEI * 100)}% · IXC {Math.round(wIXC * 100)}%
                   </span>
                 </span>
                 <span className="text-xs text-mercantil-orange whitespace-nowrap flex-shrink-0 transition-transform group-open:rotate-180">
@@ -3135,19 +3136,20 @@ function SleevesDetailPanel({ config }: { config: CaseStudyConfig }) {
               </summary>
               <div className="px-4 pb-4 pt-2 text-sm space-y-3">
                 <p>
-                  Sleeve de <strong>anti-inflación</strong> con activos reales. Composición actual blendea exposición a real estate
-                  (RWO), duration intermedia con proxy de TIPS sintético (IEI) y commodities reales (IXC). Cuando el toggle
-                  "Vista condicional de inflación" está activo, este sleeve ayuda a entender cómo se comporta el portafolio
-                  en escenarios de inflación elevada.
+                  Sleeve de <strong>anti-inflación</strong> con activos reales. Composición default blendea: equity anti-inflación
+                  (INFL, Horizon Kinetics), real estate (RWO), proxy de TIPS sintético (IEI) y commodities (IXC).
+                  Cuando el toggle "Vista condicional de inflación" está activo, este sleeve ayuda a entender cómo se comporta
+                  el portafolio en escenarios de inflación elevada.
                 </p>
                 <div className="rounded border border-teal-200 dark:border-teal-700/40 bg-teal-50 dark:bg-teal-900/10 p-2.5">
                   <div className="font-semibold text-mercantil-ink dark:text-mercantil-dark-ink text-xs uppercase tracking-wider mb-1.5">
                     Composición y rol operativo
                   </div>
                   <ul className="text-xs space-y-1">
-                    <li>• <strong>RWO ({Math.round(wRWO * 100)}%)</strong>: REITs globales — real estate con rentas tied-to-inflation. Vol ~15-20%, sensible a tasas (drag cuando suben).</li>
-                    <li>• <strong>IEI ({Math.round(wIEI * 100)}%)</strong>: Treasury 3-7y — <em>proxy de TIPS sintético</em>. MVP: usamos esta serie real del bootstrap. PR follow-up agregará TIPS UCITS (ITPS) desde EODHD.</li>
-                    <li>• <strong>IXC ({Math.round(wIXC * 100)}%)</strong>: Energy global — <em>proxy de commodities reales</em>. MVP: usamos energy como exposición a inflación commodity-driven. PR follow-up: Gold (SGLN), Infrastructure (INFR).</li>
+                    <li>• <strong>INFL ({Math.round(wINFL * 100)}%)</strong>: Horizon Kinetics Inflation Beneficiaries — equity de empresas que se benefician estructuralmente de inflación (asset-light, royalty, commodities producers). <em>Data real desde 2021-01</em>; pre-2021 imputado con IXC como proxy.</li>
+                    <li>• <strong>RWO ({Math.round(wRWO * 100)}%)</strong>: REITs globales — real estate con rentas tied-to-inflation. Vol ~15-20%, sensible a tasas.</li>
+                    <li>• <strong>IEI ({Math.round(wIEI * 100)}%)</strong>: Treasury 3-7y — <em>proxy de TIPS sintético</em>. MVP. PR follow-up: TIPS UCITS (ITPS).</li>
+                    <li>• <strong>IXC ({Math.round(wIXC * 100)}%)</strong>: Energy global — <em>proxy de commodities reales</em>. MVP. PR follow-up: Gold (SGLN), Infrastructure (INFR).</li>
                   </ul>
                 </div>
                 <div className="rounded border border-amber-200 dark:border-amber-700/40 bg-amber-50 dark:bg-amber-900/10 p-2.5">

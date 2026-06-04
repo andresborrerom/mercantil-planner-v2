@@ -48,10 +48,10 @@ export type CaseStudyConfig = {
    */
   realAssetsPct: number;
   /**
-   * Mix interno del sleeve "Activos Reales". Default 40% RWO + 40% IEI + 20% IXC.
+   * Mix interno del sleeve "Activos Reales". Default 30% INFL + 30% RWO + 25% IEI + 15% IXC.
    * El usuario puede ajustar via slider auto-balance (igual que bulletMix).
    */
-  realAssetsMix: ReadonlyArray<{ ticker: 'RWO' | 'IEI' | 'IXC'; weight: number }>;
+  realAssetsMix: ReadonlyArray<{ ticker: 'RWO' | 'IEI' | 'IXC' | 'INFL'; weight: number }>;
   eqtyMin: number;
   eqtyMax: number;
   initialSpread: number; // decimal, 0.011 = 110bp
@@ -177,9 +177,10 @@ export const DEFAULT_CASE_CONFIG: CaseStudyConfig = {
   cashPct: 0.05,
   realAssetsPct: 0, // default OFF — preserva comportamiento previo (3 sleeves)
   realAssetsMix: [
-    { ticker: 'RWO', weight: 0.40 },
-    { ticker: 'IEI', weight: 0.40 },
-    { ticker: 'IXC', weight: 0.20 },
+    { ticker: 'INFL', weight: 0.30 },
+    { ticker: 'RWO', weight: 0.30 },
+    { ticker: 'IEI', weight: 0.25 },
+    { ticker: 'IXC', weight: 0.15 },
   ],
   eqtyMin: 0.10,
   eqtyMax: 0.50,
