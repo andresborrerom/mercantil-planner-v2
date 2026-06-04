@@ -32,6 +32,26 @@ export type CaseStudyConfig = {
   bulletTotalPct: number;
   equityPct: number;
   cashPct: number;
+  /**
+   * Asignación al sleeve "Activos Reales" (inflation-sensitive). Default 0 →
+   * los 3 sleeves originales (bullets+equity+cash) suman 100%, comportamiento
+   * idéntico al previo. Cuando > 0, los 4 sleeves deben sumar 100%.
+   *
+   * Composición inicial (real data del bootstrap):
+   *  - RWO: SPDR Dow Jones Global REIT (real estate global)
+   *  - IEI: iShares 3-7y Treasury (proxy de TIPS sintético — capta duration
+   *    intermedia con inflation kicker via CPI bootstrap)
+   *  - IXC: iShares Global Energy (proxy de commodities reales)
+   *
+   * En PR follow-up agregamos TIPS, Gold, Infrastructure UCITS reales desde
+   * EODHD. Esta MVP usa lo que ya está en el data pipeline.
+   */
+  realAssetsPct: number;
+  /**
+   * Mix interno del sleeve "Activos Reales". Default 40% RWO + 40% IEI + 20% IXC.
+   * El usuario puede ajustar via slider auto-balance (igual que bulletMix).
+   */
+  realAssetsMix: ReadonlyArray<{ ticker: 'RWO' | 'IEI' | 'IXC'; weight: number }>;
   eqtyMin: number;
   eqtyMax: number;
   initialSpread: number; // decimal, 0.011 = 110bp
@@ -155,6 +175,12 @@ export const DEFAULT_CASE_CONFIG: CaseStudyConfig = {
   bulletTotalPct: 0.65,
   equityPct: 0.30,
   cashPct: 0.05,
+  realAssetsPct: 0, // default OFF — preserva comportamiento previo (3 sleeves)
+  realAssetsMix: [
+    { ticker: 'RWO', weight: 0.40 },
+    { ticker: 'IEI', weight: 0.40 },
+    { ticker: 'IXC', weight: 0.20 },
+  ],
   eqtyMin: 0.10,
   eqtyMax: 0.50,
   initialSpread: 0.011,
@@ -354,6 +380,8 @@ export function configToJobInput(
     eqtyMax: config.eqtyMax,
     equityMix: equityMixNormalized,
     hyWeight,
+    realAssetsPct: config.realAssetsPct,
+    realAssetsMix: config.realAssetsMix.map((m) => ({ ticker: m.ticker, weight: m.weight })),
     cashTicker: 'BIL',
     initialSpread: config.initialSpread,
     thresholds: config.thresholds,

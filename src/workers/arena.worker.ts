@@ -100,6 +100,23 @@ export type ArenaJobInput = {
    * El worker extrae automáticamente los retornos GHYG del bootstrap.
    */
   hyWeight?: number;
+  /**
+   * Fracción del AUM total al sleeve "Activos Reales" (0..1). Default 0
+   * = 3 sleeves originales (bullets/equity/cash) suman 100%. Cuando > 0,
+   * los 4 sleeves deben sumar 100%.
+   */
+  realAssetsPct?: number;
+  /**
+   * Mix interno del sleeve "Activos Reales". El worker blendea los retornos
+   * de los tickers en proporción a sus pesos para producir el realAssetsReturns
+   * que consume el motor. Default omitido → no se construye el sleeve.
+   *
+   * Componentes válidos hoy (MVP con data existente):
+   *   - RWO: REITs globales (real estate)
+   *   - IEI: Treasury 3-7y (proxy de TIPS sintético)
+   *   - IXC: Energy global (proxy de commodities)
+   */
+  realAssetsMix?: Array<{ ticker: string; weight: number }>;
 
   // ---- Thresholds rollover (override DEFAULT_ROLLOVER_THRESHOLDS) ----
   thresholds?: Partial<RolloverThresholds>;
@@ -398,6 +415,31 @@ function executeJob(id: string, payload: ArenaJobInput): {
     hyTicker: hyWeight > 0 ? ('GHYG' as Ticker) : null,
   });
 
+  // ----- Real Assets sleeve: blend de retornos del mix interno -----
+  // Para cada ticker del mix, multiplicamos por su peso normalizado y sumamos.
+  // Si realAssetsPct = 0 o no hay mix, no construimos nada (mantiene null).
+  const realAssetsPct = payload.realAssetsPct ?? 0;
+  let realAssetsReturnsArr: Float32Array | null = null;
+  if (realAssetsPct > 0 && payload.realAssetsMix && payload.realAssetsMix.length > 0) {
+    const totW = payload.realAssetsMix.reduce((s, m) => s + m.weight, 0);
+    if (totW > 0) {
+      const total = payload.nSims * payload.horizonMonths;
+      const blended = new Float32Array(total);
+      for (const item of payload.realAssetsMix) {
+        const w = item.weight / totW;
+        const series = boot.etfReturns?.[item.ticker as Ticker];
+        if (series && w > 0) {
+          for (let i = 0; i < total; i++) blended[i] += w * series[i];
+        }
+      }
+      realAssetsReturnsArr = blended;
+    }
+  }
+  // Adjunta realAssetsReturns al market (tipo ArenaMarket lo soporta opcional)
+  const marketWithRA = realAssetsReturnsArr
+    ? { ...market, realAssetsReturns: realAssetsReturnsArr }
+    : market;
+
   // ----- Step 2b: bucket bootstrap override (opcional, PR #8b) -----
   // Si el usuario activó bucket-bootstrap y el panel está disponible,
   // reemplazar market.bulletReturns con samples del bucket TTM empírico.
@@ -410,7 +452,7 @@ function executeJob(id: string, payload: ArenaJobInput): {
     payload.bulletReturnsEngine === 'bucket-bootstrap' && payload.ttmPanel != null;
   const finalMarket = useBucketBootstrap
     ? overrideBulletReturnsWithBucketBootstrap(
-        market,
+        marketWithRA,
         [
           ...realBullets,
           ...createExtensionBullets(
@@ -425,7 +467,7 @@ function executeJob(id: string, payload: ArenaJobInput): {
         payload.horizonMonths,
         payload.seed,
       )
-    : market;
+    : marketWithRA;
 
   // ----- Step 3: runArena -----
   const thresholds: RolloverThresholds = {
@@ -460,6 +502,7 @@ function executeJob(id: string, payload: ArenaJobInput): {
       initialSpread: payload.initialSpread,
       bulletInitialWeights: payload.bulletInitialWeights ?? null,
       hyWeight,
+      realAssetsPct,
     },
     rolloverThresholds: thresholds,
     loanEvent,

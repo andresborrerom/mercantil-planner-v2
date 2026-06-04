@@ -73,6 +73,15 @@ export type RolloverPlan = {
    * parity preservada).
    */
   hyWeight?: number;
+  /**
+   * Fracción del AUM total al sleeve "Activos Reales" (0..1). Default 0
+   * = los 3 sleeves originales (bullets/equity/cash) suman 100%, modelo
+   * legacy. Cuando > 0, los 4 sleeves deben sumar 100%.
+   *
+   * El sleeve tiene su propio mix interno (RWO+IEI+IXC); el motor recibe
+   * un único `market.realAssetsReturns` ya blended por el worker.
+   */
+  realAssetsPct?: number;
 };
 
 export type RolloverThresholds = {
