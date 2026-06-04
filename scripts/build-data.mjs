@@ -339,6 +339,49 @@ for (const c of YIELD_COLS) {
 log(`✓ yields: ${yieldsAligned} meses × ${YIELD_COLS.length} columnas alineados a DATES`);
 
 // --------------------------------------------------------------------------
+// 2b) CPI / Inflación mensual
+//     Fuente: FRED CPIAUCSL (Consumer Price Index, All Urban, SA).
+//     El CSV tiene niveles CPI; computamos inflación mensual = CPI[t]/CPI[t-1] - 1.
+//     El primer mes (DATES[0] = 2006-01) usa el ancla 2005-12 que viene en el CSV.
+// --------------------------------------------------------------------------
+
+log(`leyendo cpi`);
+const cpiCsv = parseCsv(resolve(DATA_DIR, 'mercantil_cpi_mensual.csv'));
+if (cpiCsv.header[0] !== 'Fecha' || cpiCsv.header[1] !== 'CPI') {
+  die(`cpi: header inválido, esperaba "Fecha,CPI", obtuve "${cpiCsv.header.join(',')}"`);
+}
+
+const cpiByDate = new Map();
+for (const row of cpiCsv.rows) {
+  cpiByDate.set(row[0], toFloat(row[1]));
+}
+
+// Necesitamos un mes ANTES de DATES[0] para anclar inflación de DATES[0].
+const [y0, m0] = DATES[0].split('-').map(Number);
+const prevYM = m0 === 1 ? `${y0 - 1}-12` : `${y0}-${String(m0 - 1).padStart(2, '0')}`;
+const cpiPrev = cpiByDate.get(prevYM);
+if (!Number.isFinite(cpiPrev)) {
+  die(`cpi: falta el ancla ${prevYM} (necesaria para inflación de DATES[0]=${DATES[0]})`);
+}
+
+const INFLATION = new Float32Array(nMonths); // inflación mensual aligned a DATES
+let prevCpi = cpiPrev;
+for (let i = 0; i < nMonths; i++) {
+  const cpi = cpiByDate.get(DATES[i]);
+  if (!Number.isFinite(cpi)) {
+    die(`cpi: falta valor para ${DATES[i]}`);
+  }
+  INFLATION[i] = cpi / prevCpi - 1;
+  prevCpi = cpi;
+}
+
+// Sanidad: inflación promedio anual histórica debe estar en rango plausible
+let sumLog = 0;
+for (let i = 0; i < nMonths; i++) sumLog += Math.log(1 + INFLATION[i]);
+const annInflation = Math.exp(sumLog * (12 / nMonths)) - 1;
+log(`✓ cpi: ${nMonths} meses de inflación mensual computados (promedio anual ${(annInflation * 100).toFixed(2)}%)`);
+
+// --------------------------------------------------------------------------
 // 3) RF decomposed
 // --------------------------------------------------------------------------
 
@@ -457,6 +500,15 @@ for (const c of YIELD_COLS) {
   lines.push(`  ${c}: ${float32ArrayLiteral(YIELDS[c])},`);
 }
 lines.push('};');
+lines.push('');
+lines.push('/**');
+lines.push(' * Inflación mensual (decimal) alineada a DATES. Fuente: FRED CPIAUCSL.');
+lines.push(' * INFLATION[i] = CPI[DATES[i]] / CPI[DATES[i-1]] - 1');
+lines.push(' * Para INFLATION[0] se usa el ancla 2005-12 que vive en el CSV.');
+lines.push(' * Usada por el bootstrap para samplear inflación junta con yields/returns,');
+lines.push(' * preservando la correlación histórica rates↔inflation.');
+lines.push(' */');
+lines.push(`export const INFLATION: Float32Array = ${float32ArrayLiteral(INFLATION)};`);
 lines.push('');
 lines.push(`export const RF_TICKERS = ${rfTickersLiteral} as const;`);
 lines.push('export type RfTicker = (typeof RF_TICKERS)[number];');

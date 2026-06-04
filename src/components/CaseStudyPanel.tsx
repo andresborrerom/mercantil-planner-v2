@@ -331,6 +331,11 @@ export default function CaseStudyPanel() {
   // a mercado). El Y-axis se mantiene sobre AMBOS paths para que el toggle
   // no haga saltar el eje y se vea claramente la diferencia de ancho.
   const [valuationMode, setValuationMode] = useState<'mtm' | 'htm'>('mtm');
+  // Toggle "Nominal / Real" — Real deflacta el AUM por la inflación bootstrapped
+  // mes a mes (FRED CPIAUCSL, sampleada junto con yields para preservar la
+  // correlación rates↔inflation). En Real, el flat de $5M = preservar poder
+  // adquisitivo del t=0; por arriba ganamos, por abajo perdimos.
+  const [returnView, setReturnView] = useState<'nominal' | 'real'>('nominal');
 
   // Sim index para el "camino individual" — una sola simulación de las N para
   // ilustrar la dinámica concreta de cada estrategia. Se re-samplea al cambiar
@@ -468,12 +473,29 @@ export default function CaseStudyPanel() {
     const { nSims, horizonMonths } = result.meta;
     const Hp1 = horizonMonths + 1;
     const ps = [0.05, 0.25, 0.5, 0.75, 0.95];
+    // En modo "Real" el AUM se deflacta por el índice de inflación cumulativo
+    // per-path (bootstrap CPI). Las series HTM y MtM se cuelgan del mismo
+    // factor por path para que el toggle MtM/HTM sea ortogonal al Real/Nominal.
+    const isReal = returnView === 'real';
+    let aumSource = result.aumPath;
+    let htmSource = result.aumPathHTM;
+    if (isReal) {
+      // Deflactar: aum_real[s][t] = aum[s][t] / inflationIndex[s][t]
+      const idx = result.inflationIndexPath;
+      aumSource = new Float64Array(result.aumPath.length);
+      htmSource = new Float64Array(result.aumPathHTM.length);
+      for (let i = 0; i < aumSource.length; i++) {
+        const f = idx[i] || 1;
+        aumSource[i] = result.aumPath[i] / f;
+        htmSource[i] = result.aumPathHTM[i] / f;
+      }
+    }
     // AUM "a mercado" — valoración estándar mark-to-market con curva + spread.
-    const netPct = pctPath(result.aumPath, nSims, Hp1, ps);
+    const netPct = pctPath(aumSource, nSims, Hp1, ps);
     // AUM "a vencimiento" (HTM) — bullets con haircut por defaults (bootstrap
     // Moody's), curva y spread NO afectan la valuación de bullets vivos.
     // Equity y cash siempre a mercado. Banda típicamente mucho más angosta.
-    const htmPct = pctPath(result.aumPathHTM, nSims, Hp1, ps);
+    const htmPct = pctPath(htmSource, nSims, Hp1, ps);
     type Point = {
       month: number;
       // Mark-to-market (valoración estándar)
@@ -534,7 +556,7 @@ export default function CaseStudyPanel() {
       }
     }
     return data;
-  }, [result, config.inflowBaseAnnual, config.inflowGrowth, savedVariants, variantMedians, dpfBaselineBands]);
+  }, [result, config.inflowBaseAnnual, config.inflowGrowth, savedVariants, variantMedians, dpfBaselineBands, returnView]);
 
   // Referencia simple: capital inicial es la única línea horizontal del chart.
   const initialAumM = result ? result.stats.initialAum / 1e6 : 0;
@@ -1157,10 +1179,10 @@ export default function CaseStudyPanel() {
       {/* ============== RESULTS ============== */}
       {result && (
         <div className="space-y-4">
-          {/* Stats card */}
+          {/* Stats card nominal */}
           <div className="bg-white dark:bg-mercantil-dark-panel rounded-lg border border-mercantil-line dark:border-mercantil-dark-line p-5">
             <h3 className="text-sm uppercase tracking-wider text-mercantil-slate dark:text-mercantil-dark-slate font-medium mb-3">
-              Stats finales (sobre {result.meta.nSims} simulaciones)
+              Stats finales nominales (sobre {result.meta.nSims} simulaciones)
             </h3>
             <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-4">
               <StatBox label="Retorno anual mediano" value={fmtPct(result.stats.annNetMed)} />
@@ -1169,6 +1191,25 @@ export default function CaseStudyPanel() {
               <StatBox label="Prob > 0" value={fmtPct(result.stats.probPos, 0)} />
               <StatBox label="AUM final mediano" value={fmtMoney(result.stats.finalAumMed)} />
               <StatBox label="Net wealth mediano" value={fmtMoney(result.stats.finalNetMed)} />
+            </div>
+          </div>
+
+          {/* Stats card real (deflactado por inflación bootstrapped) */}
+          <div className="bg-white dark:bg-mercantil-dark-panel rounded-lg border border-mercantil-line dark:border-mercantil-dark-line p-5">
+            <h3 className="text-sm uppercase tracking-wider text-mercantil-slate dark:text-mercantil-dark-slate font-medium mb-2">
+              Stats finales reales — poder adquisitivo
+            </h3>
+            <p className="text-xs text-mercantil-slate dark:text-mercantil-dark-slate mb-3">
+              AUM deflactado mes a mes por inflación bootstrapped (FRED CPIAUCSL acoplada a yields).
+              Si el AUM real final ≥ AUM inicial, el endowment preservó poder adquisitivo.
+            </p>
+            <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-4">
+              <StatBox label="Retorno real anual mediano" value={fmtPct(result.stats.realAnnNetMed)} />
+              <StatBox label="Real anual p5" value={fmtPct(result.stats.realAnnNetP5)} />
+              <StatBox label="Real anual p95" value={fmtPct(result.stats.realAnnNetP95)} />
+              <StatBox label="Preservó poder adq." value={fmtPct(result.stats.realProbPreservedPower, 0)} />
+              <StatBox label="AUM real final" value={fmtMoney(result.stats.realFinalAumMed)} />
+              <StatBox label="Net wealth real" value={fmtMoney(result.stats.realFinalNetMed)} />
             </div>
           </div>
 
@@ -1329,37 +1370,74 @@ export default function CaseStudyPanel() {
               <h3 className="text-sm uppercase tracking-wider text-mercantil-slate dark:text-mercantil-dark-slate font-medium">
                 AUM del fondo — percentiles ($ millones)
               </h3>
-              {/* Toggle Valuación: A Mercado / A Vencimiento. Y-axis fijo
-                  sobre ambos paths para que la diferencia de ancho de
-                  banda sea visualmente clara. */}
-              <div className="flex items-center gap-1 text-xs">
-                <span className="text-mercantil-slate dark:text-mercantil-dark-slate mr-1">Valuación:</span>
-                <button
-                  type="button"
-                  onClick={() => setValuationMode('mtm')}
-                  className={`px-2 py-1 rounded border transition ${
-                    valuationMode === 'mtm'
-                      ? 'border-mercantil-orange bg-mercantil-orange text-white'
-                      : 'border-mercantil-line dark:border-mercantil-dark-line text-mercantil-slate dark:text-mercantil-dark-slate hover:border-mercantil-orange'
-                  }`}
-                >
-                  A mercado
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setValuationMode('htm')}
-                  className={`px-2 py-1 rounded border transition ${
-                    valuationMode === 'htm'
-                      ? 'border-mercantil-orange bg-mercantil-orange text-white'
-                      : 'border-mercantil-line dark:border-mercantil-dark-line text-mercantil-slate dark:text-mercantil-dark-slate hover:border-mercantil-orange'
-                  }`}
-                  title="Valor a vencimiento natural de cada bullet — bullets con haircut por defaults (bootstrap Moody's), equity y cash a mercado. Refleja qué patrimonio recibe el cliente si se queda al ladder hasta el último bullet."
-                >
-                  A vencimiento
-                </button>
+              {/* Dos toggles ortogonales:
+                  1. Nominal / Real: el segundo deflacta por CPI bootstrapped
+                  2. A mercado / A vencimiento: valuación del ladder */}
+              <div className="flex items-center gap-3 text-xs flex-wrap">
+                <div className="flex items-center gap-1">
+                  <span className="text-mercantil-slate dark:text-mercantil-dark-slate mr-1">Términos:</span>
+                  <button
+                    type="button"
+                    onClick={() => setReturnView('nominal')}
+                    className={`px-2 py-1 rounded border transition ${
+                      returnView === 'nominal'
+                        ? 'border-mercantil-orange bg-mercantil-orange text-white'
+                        : 'border-mercantil-line dark:border-mercantil-dark-line text-mercantil-slate dark:text-mercantil-dark-slate hover:border-mercantil-orange'
+                    }`}
+                    title="USD corrientes — el número del extracto trimestral."
+                  >
+                    Nominal
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setReturnView('real')}
+                    className={`px-2 py-1 rounded border transition ${
+                      returnView === 'real'
+                        ? 'border-mercantil-orange bg-mercantil-orange text-white'
+                        : 'border-mercantil-line dark:border-mercantil-dark-line text-mercantil-slate dark:text-mercantil-dark-slate hover:border-mercantil-orange'
+                    }`}
+                    title="USD deflactado por CPI bootstrapped (FRED CPIAUCSL). El flat al capital inicial = preservar poder adquisitivo."
+                  >
+                    Real
+                  </button>
+                </div>
+                <div className="flex items-center gap-1">
+                  <span className="text-mercantil-slate dark:text-mercantil-dark-slate mr-1">Valuación:</span>
+                  <button
+                    type="button"
+                    onClick={() => setValuationMode('mtm')}
+                    className={`px-2 py-1 rounded border transition ${
+                      valuationMode === 'mtm'
+                        ? 'border-mercantil-orange bg-mercantil-orange text-white'
+                        : 'border-mercantil-line dark:border-mercantil-dark-line text-mercantil-slate dark:text-mercantil-dark-slate hover:border-mercantil-orange'
+                    }`}
+                  >
+                    A mercado
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setValuationMode('htm')}
+                    className={`px-2 py-1 rounded border transition ${
+                      valuationMode === 'htm'
+                        ? 'border-mercantil-orange bg-mercantil-orange text-white'
+                        : 'border-mercantil-line dark:border-mercantil-dark-line text-mercantil-slate dark:text-mercantil-dark-slate hover:border-mercantil-orange'
+                    }`}
+                    title="Valor a vencimiento natural de cada bullet — bullets con haircut por defaults (bootstrap Moody's), equity y cash a mercado. Refleja qué patrimonio recibe el cliente si se queda al ladder hasta el último bullet."
+                  >
+                    A vencimiento
+                  </button>
+                </div>
               </div>
             </div>
             <p className="text-xs text-mercantil-slate dark:text-mercantil-dark-slate mb-3">
+              {returnView === 'real' && (
+                <span className="block mb-1">
+                  <strong>Vista en términos reales</strong>: el AUM está deflactado por inflación mensual
+                  sampleada del bootstrap (FRED CPIAUCSL acoplada a los yields para preservar correlación
+                  histórica). El flat al capital inicial = preservación de poder adquisitivo del t=0. Por arriba
+                  ganamos en USD constantes; por abajo perdimos a pesar de crecer en USD corrientes.
+                </span>
+              )}
               {valuationMode === 'mtm' ? (
                 <>
                   <strong>A mercado</strong>: línea naranja = mediana sobre las {result.meta.nSims} simulaciones.
