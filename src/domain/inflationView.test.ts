@@ -14,6 +14,7 @@ import {
   filterPathsByInflation,
   evaluateInflationView,
   unconditionalInflationDistribution,
+  computeConditionalStats,
 } from './inflationView';
 
 // Helper: construye un inflationIndexPath sim-major desde inflación mensual
@@ -162,6 +163,92 @@ describe('G5 — unconditional distribution coincide con sampling', () => {
     expect(dist.p50).toBeCloseTo(0.03, 2);
     expect(dist.p95).toBeCloseTo(0.06 * 0.95, 2);
     expect(dist.mean).toBeCloseTo(0.03, 2);
+  });
+});
+
+describe('computeConditionalStats', () => {
+  it('matchedIndices vacío → todos NaN, sin crash', () => {
+    const stats = computeConditionalStats({
+      aumPath: new Float64Array(2 * 3),
+      netWealthPath: new Float64Array(2 * 3),
+      inflationIndexPath: new Float64Array(2 * 3),
+      initialAum: 5_000_000,
+      totalInflows: 0,
+      horizonMonths: 2,
+      nSims: 2,
+      matchedIndices: new Uint32Array(0),
+    });
+    expect(Number.isNaN(stats.finalAumMed)).toBe(true);
+    expect(Number.isNaN(stats.realProbPreservedPower)).toBe(true);
+  });
+
+  it('subset == todas las sims → stats igual al unconditional', () => {
+    const nSims = 100;
+    const horizonMonths = 12;
+    const Hp1 = horizonMonths + 1;
+    const aumPath = new Float64Array(nSims * Hp1);
+    const netWealthPath = new Float64Array(nSims * Hp1);
+    const inflationIndexPath = new Float64Array(nSims * Hp1);
+    for (let s = 0; s < nSims; s++) {
+      for (let t = 0; t <= horizonMonths; t++) {
+        // AUM crece 5% anual nominal
+        aumPath[s * Hp1 + t] = 5_000_000 * Math.pow(1.05, t / 12);
+        netWealthPath[s * Hp1 + t] = aumPath[s * Hp1 + t];
+        // Inflación 2% anual constante en todas las sims
+        inflationIndexPath[s * Hp1 + t] = Math.pow(1.02, t / 12);
+      }
+    }
+    const allIndices = new Uint32Array(nSims);
+    for (let i = 0; i < nSims; i++) allIndices[i] = i;
+    const stats = computeConditionalStats({
+      aumPath, netWealthPath, inflationIndexPath,
+      initialAum: 5_000_000, totalInflows: 0,
+      horizonMonths, nSims, matchedIndices: allIndices,
+    });
+    expect(stats.finalAumMed).toBeCloseTo(5_000_000 * 1.05, 0);
+    // Real = nominal / inflación → 5*1.05 / 1.02
+    expect(stats.realFinalAumMed).toBeCloseTo(5_000_000 * 1.05 / 1.02, 0);
+    // Preservó poder adq porque 1.05/1.02 > 1 → 100%
+    expect(stats.realProbPreservedPower).toBe(1);
+  });
+
+  it('subset filtra correcto: 50 sims con buen retorno + 50 con malo → median apunta al subset', () => {
+    const nSims = 100;
+    const horizonMonths = 12;
+    const Hp1 = horizonMonths + 1;
+    const aumPath = new Float64Array(nSims * Hp1);
+    const netWealthPath = new Float64Array(nSims * Hp1);
+    const inflationIndexPath = new Float64Array(nSims * Hp1);
+    for (let s = 0; s < nSims; s++) {
+      // Primera mitad: retorno bueno (10% anual). Segunda mitad: retorno malo (-5%)
+      const target = s < 50 ? 1.10 : 0.95;
+      for (let t = 0; t <= horizonMonths; t++) {
+        aumPath[s * Hp1 + t] = 5_000_000 * Math.pow(target, t / 12);
+        netWealthPath[s * Hp1 + t] = aumPath[s * Hp1 + t];
+        inflationIndexPath[s * Hp1 + t] = 1.0; // sin inflación = real == nominal
+      }
+    }
+    // Filtramos solo las buenas (primer subset)
+    const goodIndices = new Uint32Array(50);
+    for (let i = 0; i < 50; i++) goodIndices[i] = i;
+    const goodStats = computeConditionalStats({
+      aumPath, netWealthPath, inflationIndexPath,
+      initialAum: 5_000_000, totalInflows: 0,
+      horizonMonths, nSims, matchedIndices: goodIndices,
+    });
+    // finalAumMed debe estar cerca de 5M * 1.10
+    expect(goodStats.finalAumMed).toBeCloseTo(5_500_000, 0);
+    expect(goodStats.probPos).toBe(1);
+    // Filtramos solo las malas
+    const badIndices = new Uint32Array(50);
+    for (let i = 0; i < 50; i++) badIndices[i] = i + 50;
+    const badStats = computeConditionalStats({
+      aumPath, netWealthPath, inflationIndexPath,
+      initialAum: 5_000_000, totalInflows: 0,
+      horizonMonths, nSims, matchedIndices: badIndices,
+    });
+    expect(badStats.finalAumMed).toBeCloseTo(4_750_000, 0);
+    expect(badStats.probPos).toBe(0);
   });
 });
 

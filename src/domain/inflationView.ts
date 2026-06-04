@@ -143,6 +143,108 @@ export function evaluateInflationView(
 }
 
 /**
+ * Computa stats finales (nominal + real) sobre un subset de sims. Reemplaza
+ * los stats que el worker computa sobre todas las sims cuando el cliente
+ * activa conditioning. Recomputa al horizonte FINAL del path (no a una
+ * ventana específica — eso se puede agregar después si el slider del fan
+ * chart lo necesita).
+ */
+export function computeConditionalStats(params: {
+  aumPath: Float64Array;
+  netWealthPath: Float64Array;
+  inflationIndexPath: Float64Array;
+  initialAum: number;
+  totalInflows: number;
+  horizonMonths: number;
+  nSims: number;
+  matchedIndices: Uint32Array;
+}): {
+  finalAumMed: number;
+  finalNetMed: number;
+  netReturnMed: number;
+  annNetMed: number;
+  netReturnP5: number;
+  netReturnP95: number;
+  annNetP5: number;
+  annNetP95: number;
+  probPos: number;
+  realFinalAumMed: number;
+  realFinalNetMed: number;
+  realNetReturnMed: number;
+  realAnnNetMed: number;
+  realProbPreservedPower: number;
+} {
+  const { aumPath, netWealthPath, inflationIndexPath, initialAum, totalInflows, horizonMonths, matchedIndices } = params;
+  void params.nSims; // mantengo nSims en la interfaz para validación caller-side, aunque interno usamos matchedIndices.length
+  const Hp1 = horizonMonths + 1;
+  const n = matchedIndices.length;
+  // Edge case: subset vacío → devolvemos NaN para todo
+  if (n === 0) {
+    const nan = NaN;
+    return {
+      finalAumMed: nan, finalNetMed: nan, netReturnMed: nan, annNetMed: nan,
+      netReturnP5: nan, netReturnP95: nan, annNetP5: nan, annNetP95: nan,
+      probPos: nan, realFinalAumMed: nan, realFinalNetMed: nan,
+      realNetReturnMed: nan, realAnnNetMed: nan, realProbPreservedPower: nan,
+    };
+  }
+  const finalAums = new Float64Array(n);
+  const finalNets = new Float64Array(n);
+  const finalReals = new Float64Array(n);
+  const finalNetReals = new Float64Array(n);
+  const netReturns = new Float64Array(n);
+  const realNetReturns = new Float64Array(n);
+  let nPos = 0;
+  let nPreservedPower = 0;
+  for (let i = 0; i < n; i++) {
+    const s = matchedIndices[i];
+    const finalAum = aumPath[s * Hp1 + horizonMonths];
+    const finalNet = netWealthPath[s * Hp1 + horizonMonths];
+    const idxFinal = inflationIndexPath[s * Hp1 + horizonMonths];
+    finalAums[i] = finalAum;
+    finalNets[i] = finalNet;
+    finalReals[i] = finalAum / idxFinal;
+    finalNetReals[i] = finalNet / idxFinal;
+    netReturns[i] = (finalNet - initialAum - totalInflows) / initialAum;
+    const realInflows = totalInflows / idxFinal;
+    realNetReturns[i] = (finalNetReals[i] - initialAum - realInflows) / initialAum;
+    if (netReturns[i] > 0) nPos++;
+    if (finalReals[i] >= initialAum) nPreservedPower++;
+    void s; // suppress unused-var warning on referenced var
+  }
+  const sorted = (a: Float64Array): Float64Array => {
+    const c = Float64Array.from(a);
+    c.sort();
+    return c;
+  };
+  const q = (a: Float64Array, p: number) => a[Math.min(a.length - 1, Math.floor(p * (a.length - 1)))];
+  const med = (a: Float64Array) => q(a, 0.5);
+  const sortedNetReturns = sorted(netReturns);
+  const sortedRealNetReturns = sorted(realNetReturns);
+  const annFactor = 12 / horizonMonths;
+  const netMed = q(sortedNetReturns, 0.5);
+  const netP5 = q(sortedNetReturns, 0.05);
+  const netP95 = q(sortedNetReturns, 0.95);
+  const realNetMed = q(sortedRealNetReturns, 0.5);
+  return {
+    finalAumMed: med(sorted(finalAums)),
+    finalNetMed: med(sorted(finalNets)),
+    netReturnMed: netMed,
+    annNetMed: netMed > -1 ? Math.pow(1 + netMed, annFactor) - 1 : -1,
+    netReturnP5: netP5,
+    netReturnP95: netP95,
+    annNetP5: netP5 > -1 ? Math.pow(1 + netP5, annFactor) - 1 : -1,
+    annNetP95: Math.pow(1 + netP95, annFactor) - 1,
+    probPos: nPos / n,
+    realFinalAumMed: med(sorted(finalReals)),
+    realFinalNetMed: med(sorted(finalNetReals)),
+    realNetReturnMed: realNetMed,
+    realAnnNetMed: realNetMed > -1 ? Math.pow(1 + realNetMed, annFactor) - 1 : -1,
+    realProbPreservedPower: nPreservedPower / n,
+  };
+}
+
+/**
  * Computa p5/p25/p50/p75/p95 de la inflación anualizada en la ventana sobre
  * el set unconditional. Usado por el UI para mostrar al usuario el rango
  * "normal" antes de que él narrowee.

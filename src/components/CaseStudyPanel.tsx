@@ -42,6 +42,7 @@ import { useEquityCatalogByTicker } from '../hooks/useEquityMeta';
 import { useTTMPanel } from '../hooks/useTTMPanel';
 import {
   computeAnnInflationInWindow,
+  computeConditionalStats,
   evaluateInflationView,
   unconditionalInflationDistribution,
 } from '../domain/inflationView';
@@ -621,6 +622,30 @@ export default function CaseStudyPanel() {
     config.inflationConditioningMinPct,
     config.inflationConditioningMaxPct,
   ]);
+
+  // Stats condicionales: cuando viewEvaluation tiene matchedIndices, recompute
+  // los stats clave sobre ese subset. Cuando no hay conditioning o no hubo
+  // match, fallback a result.stats (lo que el worker computó sobre todas las sims).
+  const effectiveStats = useMemo(() => {
+    if (!result) return null;
+    if (!viewEvaluation || viewEvaluation.nMatched === 0) return result.stats;
+    const sub = computeConditionalStats({
+      aumPath: result.aumPath,
+      netWealthPath: result.netWealthPath,
+      inflationIndexPath: result.inflationIndexPath,
+      initialAum: result.stats.initialAum,
+      totalInflows: result.stats.totalInflows,
+      horizonMonths: result.meta.horizonMonths,
+      nSims: result.meta.nSims,
+      matchedIndices: viewEvaluation.matchedIndices,
+    });
+    // Mergear: stats originales (campos que NO se recomputan, e.g. loanCumInterestMed)
+    // + los recomputados desde el subset
+    return {
+      ...result.stats,
+      ...sub,
+    };
+  }, [result, viewEvaluation]);
 
   // Distribución unconditional de la inflación en la ventana (siempre, para
   // que la UI muestre "rango natural del modelo" como referencia visual).
@@ -1416,18 +1441,22 @@ export default function CaseStudyPanel() {
       {/* ============== RESULTS ============== */}
       {result && (
         <div className="space-y-4">
-          {/* Stats card nominal */}
+          {/* Stats card nominal — effectiveStats refleja el subset cuando hay
+              conditioning activo. result.stats sigue siendo el referente
+              unconditional. */}
           <div className="bg-white dark:bg-mercantil-dark-panel rounded-lg border border-mercantil-line dark:border-mercantil-dark-line p-5">
             <h3 className="text-sm uppercase tracking-wider text-mercantil-slate dark:text-mercantil-dark-slate font-medium mb-3">
-              Stats finales nominales (sobre {result.meta.nSims} simulaciones)
+              Stats finales nominales (sobre {viewEvaluation && viewEvaluation.nMatched > 0
+                ? `${viewEvaluation.nMatched} de ${result.meta.nSims} sims condicionales`
+                : `${result.meta.nSims} simulaciones`})
             </h3>
             <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-4">
-              <StatBox label="Retorno anual mediano" value={fmtPct(result.stats.annNetMed)} />
-              <StatBox label="Anual p5" value={fmtPct(result.stats.annNetP5)} />
-              <StatBox label="Anual p95" value={fmtPct(result.stats.annNetP95)} />
-              <StatBox label="Prob > 0" value={fmtPct(result.stats.probPos, 0)} />
-              <StatBox label="AUM final mediano" value={fmtMoney(result.stats.finalAumMed)} />
-              <StatBox label="Net wealth mediano" value={fmtMoney(result.stats.finalNetMed)} />
+              <StatBox label="Retorno anual mediano" value={fmtPct((effectiveStats ?? result.stats).annNetMed)} />
+              <StatBox label="Anual p5" value={fmtPct((effectiveStats ?? result.stats).annNetP5)} />
+              <StatBox label="Anual p95" value={fmtPct((effectiveStats ?? result.stats).annNetP95)} />
+              <StatBox label="Prob > 0" value={fmtPct((effectiveStats ?? result.stats).probPos, 0)} />
+              <StatBox label="AUM final mediano" value={fmtMoney((effectiveStats ?? result.stats).finalAumMed)} />
+              <StatBox label="Net wealth mediano" value={fmtMoney((effectiveStats ?? result.stats).finalNetMed)} />
             </div>
           </div>
 
@@ -1439,14 +1468,17 @@ export default function CaseStudyPanel() {
             <p className="text-xs text-mercantil-slate dark:text-mercantil-dark-slate mb-3">
               AUM deflactado mes a mes por inflación bootstrapped (FRED CPIAUCSL acoplada a yields).
               Si el AUM real final ≥ AUM inicial, el endowment preservó poder adquisitivo.
+              {viewEvaluation && viewEvaluation.nMatched > 0 && (
+                <span className="ml-1 italic">Stats computados sobre subset condicional.</span>
+              )}
             </p>
             <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-4">
-              <StatBox label="Retorno real anual mediano" value={fmtPct(result.stats.realAnnNetMed)} />
-              <StatBox label="Real anual p5" value={fmtPct(result.stats.realAnnNetP5)} />
-              <StatBox label="Real anual p95" value={fmtPct(result.stats.realAnnNetP95)} />
-              <StatBox label="Preservó poder adq." value={fmtPct(result.stats.realProbPreservedPower, 0)} />
-              <StatBox label="AUM real final" value={fmtMoney(result.stats.realFinalAumMed)} />
-              <StatBox label="Net wealth real" value={fmtMoney(result.stats.realFinalNetMed)} />
+              <StatBox label="Retorno real anual mediano" value={fmtPct((effectiveStats ?? result.stats).realAnnNetMed)} />
+              <StatBox label="Real anual p5" value={fmtPct((effectiveStats ?? result.stats).realNetReturnP5)} />
+              <StatBox label="Real anual p95" value={fmtPct((effectiveStats ?? result.stats).realNetReturnP95)} />
+              <StatBox label="Preservó poder adq." value={fmtPct((effectiveStats ?? result.stats).realProbPreservedPower, 0)} />
+              <StatBox label="AUM real final" value={fmtMoney((effectiveStats ?? result.stats).realFinalAumMed)} />
+              <StatBox label="Net wealth real" value={fmtMoney((effectiveStats ?? result.stats).realFinalNetMed)} />
             </div>
           </div>
 
