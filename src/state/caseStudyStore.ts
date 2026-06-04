@@ -132,7 +132,7 @@ export type CaseStudyConfig = {
 export const DEFAULT_CASE_CONFIG: CaseStudyConfig = {
   initialAumUsd: 5_000_000,
   horizonMonths: 240,
-  nSims: 500,
+  nSims: 5000,
   seed: 42,
   bulletTotalPct: 0.65,
   equityPct: 0.30,
