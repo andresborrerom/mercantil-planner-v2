@@ -206,6 +206,23 @@ export type ArenaJobOutput = {
   aumPathHTM: Float64Array;
   /** Net wealth (AUM − loan_balance). */
   netWealthPath: Float64Array;
+  /**
+   * AUM en TÉRMINOS REALES (USD a poder adquisitivo del t=0). Definido como
+   * `aumPath[s][t] / inflationIndex[s][t]`, donde inflationIndex es producto
+   * cumulativo de (1 + inflación mensual) sampleada del bootstrap. Si está
+   * arriba de initialAum, el endowment ganó poder adquisitivo. Si está
+   * abajo, lo perdió a pesar de crecer en términos nominales.
+   */
+  aumPathReal: Float64Array;
+  /** Net wealth real (= aumPathReal − loanBalance/inflationIndex). */
+  netWealthPathReal: Float64Array;
+  /**
+   * Índice de inflación cumulativo per-sim, sim-major [nSims × (H+1)].
+   * inflationIndex[s][0] = 1. inflationIndex[s][t] = Π(1+inflación[s][k]) k=0..t-1.
+   * Útil para reconstruir el AUM real en cualquier subset y para reference
+   * lines del fan chart en modo "Real".
+   */
+  inflationIndexPath: Float64Array;
   /** Sleeve AUMs [nSims × (H+1) × 3] (0=bullets, 1=equity, 2=cash). */
   sleevePath: Float64Array;
   /** Loan balance path [nSims × (H+1)]. */
@@ -323,6 +340,7 @@ function executeJob(id: string, payload: ArenaJobInput): {
     },
     outputYieldPaths: true,
     outputEtfReturns: true,
+    outputInflationPaths: true,
   });
   const tBoot1 =
     typeof performance !== 'undefined' && typeof performance.now === 'function'
@@ -481,17 +499,80 @@ function executeJob(id: string, payload: ArenaJobInput): {
     sleeveType,
   );
 
+  // ----- Real-return post-process -----
+  // Computa el índice de inflación cumulativo por path desde inflationPaths
+  // (sampleado en el bootstrap, acoplado a yields). Luego deflacta el AUM.
+  // Si por algún motivo no hay inflationPaths (no debería pasar, lo pedimos
+  // arriba), reportamos AUM real = nominal (degradación silenciosa).
+  const Hp1 = payload.horizonMonths + 1;
+  const aumPathReal = new Float64Array(payload.nSims * Hp1);
+  const netWealthPathReal = new Float64Array(payload.nSims * Hp1);
+  const inflationIndexPath = new Float64Array(payload.nSims * Hp1);
+  const inflPaths = boot.inflationPaths;
+  for (let s = 0; s < payload.nSims; s++) {
+    let idx = 1.0; // inflation index al inicio del mes t=0 (= antes de cualquier inflación)
+    inflationIndexPath[s * Hp1 + 0] = idx;
+    aumPathReal[s * Hp1 + 0] = processed.aumPath[s * Hp1 + 0] / idx;
+    netWealthPathReal[s * Hp1 + 0] = processed.netWealthPath[s * Hp1 + 0] / idx;
+    for (let t = 1; t <= payload.horizonMonths; t++) {
+      const r = inflPaths ? inflPaths[s * payload.horizonMonths + (t - 1)] : 0;
+      idx *= 1 + r;
+      inflationIndexPath[s * Hp1 + t] = idx;
+      aumPathReal[s * Hp1 + t] = processed.aumPath[s * Hp1 + t] / idx;
+      netWealthPathReal[s * Hp1 + t] = processed.netWealthPath[s * Hp1 + t] / idx;
+    }
+  }
+
+  // ----- Stats reales (deflactados) -----
+  const initialAumReal = payload.initialAumUsd; // por def. inflationIndex[t=0]=1
+  const finalAumReals = new Float64Array(payload.nSims);
+  const finalNetReals = new Float64Array(payload.nSims);
+  const realNetReturns = new Float64Array(payload.nSims);
+  let nPreserved = 0;
+  for (let s = 0; s < payload.nSims; s++) {
+    const idxFinal = inflationIndexPath[s * Hp1 + payload.horizonMonths];
+    finalAumReals[s] = processed.aumPath[s * Hp1 + payload.horizonMonths] / idxFinal;
+    finalNetReals[s] = processed.netWealthPath[s * Hp1 + payload.horizonMonths] / idxFinal;
+    // Total inflows real-deflactados (aproximación: usamos el index final como
+    // proxy del momento promedio de aportación; refinamiento posible pero pequeño)
+    const totalInflowsReal = processed.stats.totalInflows / idxFinal;
+    realNetReturns[s] = (finalNetReals[s] - initialAumReal - totalInflowsReal) / initialAumReal;
+    if (finalAumReals[s] >= initialAumReal) nPreserved++;
+  }
+  const sortedRealR = Float64Array.from(realNetReturns);
+  sortedRealR.sort();
+  const realAnnFactor = 12.0 / payload.horizonMonths;
+  const rMed = quantile(sortedRealR, 0.5);
+  const rP5 = quantile(sortedRealR, 0.05);
+  const rP95 = quantile(sortedRealR, 0.95);
+
+  const enrichedStats: ArenaStats = {
+    ...processed.stats,
+    realFinalAumMed: medianOf(finalAumReals),
+    realFinalNetMed: medianOf(finalNetReals),
+    realNetReturnP5: rP5,
+    realNetReturnMed: rMed,
+    realNetReturnP95: rP95,
+    realAnnNetMed: rMed > -1 ? Math.pow(1 + rMed, realAnnFactor) - 1 : -1,
+    realAnnNetP5: rP5 > -1 ? Math.pow(1 + rP5, realAnnFactor) - 1 : -1,
+    realAnnNetP95: Math.pow(1 + rP95, realAnnFactor) - 1,
+    realProbPreservedPower: nPreserved / payload.nSims,
+  };
+
   // ----- Build response -----
   const result: ArenaJobOutput = {
     aumPath: processed.aumPath,
     aumPathHTM,
     netWealthPath: processed.netWealthPath,
+    aumPathReal,
+    netWealthPathReal,
+    inflationIndexPath,
     sleevePath: processed.sleevePath,
     loanBalancePath: arenaOut.loanBalancePath,
     dpfBaselinePath: processed.dpfBaselinePath,
     events: arenaOut.events,
     regimeCounts: arenaOut.regimeCounts,
-    stats: processed.stats,
+    stats: enrichedStats,
     cumInterestPaid: arenaOut.finalState.cumInterestPaid,
     cumForcedEquitySales: arenaOut.finalState.cumForcedEquitySales,
     cumForcedBulletSales: arenaOut.finalState.cumForcedBulletSales,
@@ -656,6 +737,18 @@ function applyAllInFee(
     loanShortfallMed: arenaOut.stats.loanShortfallMed,
     soldOnEventMed: arenaOut.stats.soldOnEventMed,
     realizedGainOnSaleMed: arenaOut.stats.realizedGainOnSaleMed,
+    // Las métricas reales se llenan en el caller (outer worker) que tiene
+    // acceso a inflationIndexPath. Acá las dejamos en 0 para satisfacer el
+    // tipo; serán sobreescritas vía enrichedStats.
+    realFinalAumMed: 0,
+    realFinalNetMed: 0,
+    realNetReturnP5: 0,
+    realNetReturnMed: 0,
+    realNetReturnP95: 0,
+    realAnnNetMed: 0,
+    realAnnNetP5: 0,
+    realAnnNetP95: 0,
+    realProbPreservedPower: 0,
   };
 
   return {

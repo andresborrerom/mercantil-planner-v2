@@ -35,6 +35,7 @@ import {
   TICKERS,
   YIELDS,
   RF_DECOMP,
+  INFLATION,
   type Ticker,
   type RfTicker,
 } from '../data/market.generated';
@@ -117,6 +118,15 @@ export type BootstrapInput = {
    */
   outputEtfReturns?: boolean;
   /**
+   * Si true, también emite paths de inflación mensual sampleados junto con
+   * yields y ETF returns. Preserva la correlación histórica rates↔inflation
+   * (e.g., shock 2022 → rate hike + CPI spike juntos en el mismo bloque).
+   * Output: Float32Array `[nPaths × horizonMonths]` con tasa mensual decimal.
+   *
+   * Costo: nPaths × horizonMonths × 4 bytes = ~7 MB para 5000 × 360.
+   */
+  outputInflationPaths?: boolean;
+  /**
    * Bullet ladders opcionales por portafolio (v2 H2b).
    *
    * Si está presente para un portafolio, su retorno se blende como:
@@ -179,6 +189,14 @@ export type BootstrapOutput = {
    * Mapeo por ticker (32 tickers). Útil para views con subject `etfReturn`.
    */
   etfReturns?: EtfReturnsOutput;
+  /**
+   * Inflación mensual sampleada per-path. Solo presente si
+   * `input.outputInflationPaths === true`. Float32Array `[nPaths × horizonMonths]`
+   * row-major path-major (path s, mes t → idx s * horizonMonths + t).
+   * Acoplado con yields/returns: cada mes sampleado del histórico aporta
+   * SIMULTÁNEAMENTE su (yield, ETF return, inflation) → preserva correlación.
+   */
+  inflationPaths?: Float32Array;
   /**
    * Retornos mensuales del basket de bullets de los ladders A/B, ya
    * ponderados internamente (suma de `weight/100 × r_bullet`) — antes del
@@ -467,6 +485,7 @@ export function runBootstrap(
   const { portfolios, horizonMonths, config } = input;
   const outputYieldPaths = input.outputYieldPaths === true;
   const outputEtfReturns = input.outputEtfReturns === true;
+  const outputInflationPaths = input.outputInflationPaths === true;
   const ladderA: LadderSpec | null = input.ladders?.A ?? null;
   const ladderB: LadderSpec | null = input.ladders?.B ?? null;
   const hasAnyLadder = ladderA !== null || ladderB !== null;
@@ -552,6 +571,11 @@ export function runBootstrap(
       })()
     : null;
 
+  // --- Inflation paths buffer (opt-in). Costo ~7 MB para 5000×360. ---
+  const inflationBuf: Float32Array | null = outputInflationPaths
+    ? new Float32Array(nPaths * horizonMonths)
+    : null;
+
   // --- PRNG ---
   const rand = mulberry32(seed);
 
@@ -593,6 +617,7 @@ export function runBootstrap(
           }
           rA[outIdx] = sumA;
           rB[outIdx] = sumB;
+          if (inflationBuf) inflationBuf[outIdx] = INFLATION[month];
         }
         t += len;
       }
@@ -706,6 +731,7 @@ export function runBootstrap(
           }
           rA[outIdx] = sumA;
           rB[outIdx] = sumB;
+          if (inflationBuf) inflationBuf[outIdx] = INFLATION[month];
         }
         t += len;
       }
@@ -800,6 +826,9 @@ export function runBootstrap(
       etfReturns[TICKERS[j]] = etfBuffers[j];
     }
     output.etfReturns = etfReturns;
+  }
+  if (inflationBuf) {
+    output.inflationPaths = inflationBuf;
   }
   if (bulletBasketA) output.bulletBasketReturnsA = bulletBasketA;
   if (bulletBasketB) output.bulletBasketReturnsB = bulletBasketB;

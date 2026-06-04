@@ -171,6 +171,27 @@ export type ArenaStats = {
    */
   soldOnEventMed: number;
   realizedGainOnSaleMed: number;
+  /**
+   * Métricas en términos REALES (poder adquisitivo deflactado por CPI).
+   * Solo presentes si el worker computa el path real (i.e., siempre
+   * en el case study v2). En el motor Python parity quedan en 0.
+   *
+   * - realFinalAumMed: AUM final mediano en USD reales (poder adquisitivo t=0)
+   * - realFinalNetMed: net wealth final mediano en USD reales
+   * - realNetReturnMed/P5/P95: retornos reales (deflactados) del net wealth
+   * - realAnnNetMed/P5/P95: anualizados sobre el horizonte
+   * - realProbPreservedPower: % de sims donde finalAumReal ≥ initialAum
+   *   (= portafolio preservó o ganó poder adquisitivo).
+   */
+  realFinalAumMed: number;
+  realFinalNetMed: number;
+  realNetReturnP5: number;
+  realNetReturnMed: number;
+  realNetReturnP95: number;
+  realAnnNetMed: number;
+  realAnnNetP5: number;
+  realAnnNetP95: number;
+  realProbPreservedPower: number;
 };
 
 export type ArenaOutput = {
@@ -749,6 +770,17 @@ export function runArena(
     loanShortfallMed: median(state.cumLoanShortfall),
     soldOnEventMed: median(state.cumSoldOnEvent),
     realizedGainOnSaleMed: median(state.cumRealizedGainOnSale),
+    // Métricas reales: el motor base las deja en 0; el worker (post-process)
+    // las llena cuando computa el path real con inflación bootstrapped.
+    realFinalAumMed: 0,
+    realFinalNetMed: 0,
+    realNetReturnP5: 0,
+    realNetReturnMed: 0,
+    realNetReturnP95: 0,
+    realAnnNetMed: 0,
+    realAnnNetP5: 0,
+    realAnnNetP95: 0,
+    realProbPreservedPower: 0,
   };
 
   const out: ArenaOutput = {
