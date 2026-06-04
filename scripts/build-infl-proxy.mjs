@@ -7,14 +7,17 @@
  * usa IXC (Energy) como proxy, sesgando la CAGR proyectada hacia abajo (~4.3%)
  * cuando el INFL real post-launch lleva 17.89% CAGR.
  *
- * Solución: basket de 4 ETFs cuyas exposiciones replican el modelo de negocio:
+ * Solución: basket de 5 ETFs cuyas exposiciones replican el modelo de negocio:
+ *   - BIL (T-Bills 1-3m)             ← dampener de beta (cash-like)
  *   - IXC (energy global)            ← land/royalty oil&gas (32% INFL real)
  *   - GDX (gold miners)              ← precious metals royalty (15%)
  *   - IAI (US broker/exchange)       ← exchanges (15%)
  *   - SPY (broad US)                 ← catch-all (28%: utilities, ag, residual)
  *
- * (MXI descartado: con peso 1.9% en NNLS de 5-componentes no agregaba señal,
- * solo varianza estimada. Refit a 4 redistribuye optimalmente.)
+ * (MXI descartado en v2: con peso 1.9% en NNLS no agregaba señal, solo
+ * varianza estimada. BIL agregado en v3: el optimizador exageraba beta sin
+ * componente low-vol — exageraba subidas y bajadas. BIL le da grado de libertad
+ * para dampear.)
  *
  * Pesos: NNLS con Σw=1 y w≥0, fitteado en overlap 2021-02 → 2026-04.
  * Train/holdout split: 80/20 para reportar tracking error out-of-sample.
@@ -176,16 +179,31 @@ function trackingErrorAnn(yTrue, yPred) {
   return Math.sqrt(variance * 12);
 }
 
+function volAnn(series) {
+  const m = series.reduce((s, v) => s + v, 0) / series.length;
+  const v = series.reduce((s, x) => s + (x - m) ** 2, 0) / series.length;
+  return Math.sqrt(v * 12);
+}
+
+function betaTo(y, x) {
+  const mx = x.reduce((s, v) => s + v, 0) / x.length;
+  const my = y.reduce((s, v) => s + v, 0) / y.length;
+  let cov = 0, vx = 0;
+  for (let i = 0; i < x.length; i++) { cov += (x[i] - mx) * (y[i] - my); vx += (x[i] - mx) ** 2; }
+  return cov / vx;
+}
+
 // ---------- Main ----------
 
 async function main() {
-  // 1. Leer CSV: IXC, SPY ya están. INFL también (63 reales + 181 NaN).
+  // 1. Leer CSV: BIL, IXC, SPY ya están. INFL también (63 reales + 181 NaN).
   console.log('[step 1] Leyendo CSV existente…');
   const { header, rows } = readCsv(CSV_PATH);
+  const bilRet = getCol(header, rows, 'BIL');
   const ixcRet = getCol(header, rows, 'IXC');
   const spyRet = getCol(header, rows, 'SPY');
   const inflReal = getCol(header, rows, 'INFL');
-  console.log(`  IXC: ${ixcRet.size} meses · SPY: ${spyRet.size} · INFL real: ${inflReal.size}`);
+  console.log(`  BIL: ${bilRet.size} · IXC: ${ixcRet.size} · SPY: ${spyRet.size} · INFL real: ${inflReal.size}`);
 
   // 2. Fetchear GDX e IAI desde EODHD
   console.log('[step 2] Fetcheando GDX e IAI desde EODHD…');
@@ -196,10 +214,10 @@ async function main() {
   console.log(`  GDX: ${gdxRet.size} meses · IAI: ${iaiRet.size} meses`);
 
   // 3. Construir matriz X (componentes) y vector y (INFL real) para el overlap
-  // Overlap = meses donde los 4 componentes + INFL real tienen valor
+  // Overlap = meses donde los 5 componentes + INFL real tienen valor
   const allYms = [...inflReal.keys()].sort();
   const overlapYms = allYms.filter((ym) =>
-    ixcRet.has(ym) && spyRet.has(ym) && gdxRet.has(ym) && iaiRet.has(ym)
+    bilRet.has(ym) && ixcRet.has(ym) && spyRet.has(ym) && gdxRet.has(ym) && iaiRet.has(ym)
   );
   console.log(`[step 3] Overlap completo: ${overlapYms.length} meses (${overlapYms[0]} → ${overlapYms[overlapYms.length-1]})`);
 
@@ -210,8 +228,8 @@ async function main() {
   console.log(`  Train: ${trainYms.length} meses (${trainYms[0]} → ${trainYms[trainYms.length-1]})`);
   console.log(`  Holdout: ${holdoutYms.length} meses (${holdoutYms[0]} → ${holdoutYms[holdoutYms.length-1]})`);
 
-  const componentNames = ['IXC', 'GDX', 'IAI', 'SPY'];
-  const components = [ixcRet, gdxRet, iaiRet, spyRet];
+  const componentNames = ['BIL', 'IXC', 'GDX', 'IAI', 'SPY'];
+  const components = [bilRet, ixcRet, gdxRet, iaiRet, spyRet];
 
   const buildXY = (yms) => {
     const X = yms.map((ym) => components.map((m) => m.get(ym)));
@@ -240,6 +258,14 @@ async function main() {
   console.log(`  R² out-of-sample: ${r2Holdout.toFixed(4)}`);
   console.log(`  Tracking error in-sample (anualizado):    ${(teTrain * 100).toFixed(2)}%`);
   console.log(`  Tracking error out-of-sample (anualizado): ${(teHoldout * 100).toFixed(2)}%`);
+  // Vol y beta para verificar dampening
+  const volInfl = volAnn(train.y);
+  const volSynth = volAnn(predTrain);
+  const beta = betaTo(predTrain, train.y);
+  console.log(`  Vol anualizada INFL real (train):       ${(volInfl * 100).toFixed(2)}%`);
+  console.log(`  Vol anualizada Sintético (train):       ${(volSynth * 100).toFixed(2)}%`);
+  console.log(`  Ratio vol Sintético/INFL:               ${(volSynth / volInfl).toFixed(3)}x`);
+  console.log(`  Beta Sintético vs INFL (train):         ${beta.toFixed(3)}`);
 
   // 7. Computar serie sintética COMPLETA (2006-01 → 2026-04)
   // Para meses donde algún componente no tiene data, renormalizamos los pesos
