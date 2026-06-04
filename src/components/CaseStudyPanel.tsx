@@ -1061,7 +1061,7 @@ export default function CaseStudyPanel() {
               Renta fija — mix interno
             </div>
             <BulletMixSelector
-              value={config.bulletMix as { ticker: 'iBonds' | 'GHYG'; weight: number }[]}
+              value={config.bulletMix as { ticker: 'iBonds' | 'iBonds-HY' | 'GHYG'; weight: number }[]}
               onChange={(next) => setConfig({ bulletMix: next })}
             />
           </div>

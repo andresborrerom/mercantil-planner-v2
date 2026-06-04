@@ -1,60 +1,96 @@
 /**
  * BulletMixSelector — mix interno del sleeve "renta fija".
  *
- * Dos componentes fijos:
- *  - iBonds UCITS USD Corp IG (ladder defined-maturity, modelo paramétrico)
- *  - GHYG (iShares Global HY Corp UCITS, perpetual, retornos del bootstrap)
+ * Tres componentes fijos:
+ *  - iBonds UCITS USD Corp IG (ladder defined-maturity 2026–2034, modelo paramétrico)
+ *  - iBonds UCITS USD HY Corp (mini-ladder IU28+IU29, defined-maturity 2028–2029)
+ *  - GHYG (iShares Global HY Corp UCITS, perpetual)
  *
- * UI análoga a EquityMixSelector pero simplificada a estos 2 ítems. Slider
- * + input numérico (draft local) por componente. Display del % normalizado
- * en vivo. Reset al default (100/0).
+ * UX: slider 0–100 + input numérico draft local. Auto-balance al mover:
+ * cuando el cliente mueve un slider, los OTROS se ajustan proporcionalmente
+ * para mantener la suma en 100. Análogo a allocation principal — no hay
+ * normalización al envío, la suma siempre vale 100 en el storage.
  */
 import { useEffect, useRef, useState } from 'react';
 
-export type BulletMixItem = { ticker: 'iBonds' | 'GHYG'; weight: number };
+export type BulletMixTicker = 'iBonds' | 'iBonds-HY' | 'GHYG';
+export type BulletMixItem = { ticker: BulletMixTicker; weight: number };
 
 type Props = {
   value: ReadonlyArray<BulletMixItem>;
   onChange: (next: BulletMixItem[]) => void;
 };
 
-const LABELS: Record<BulletMixItem['ticker'], { name: string; subtitle: string }> = {
+const TICKERS: BulletMixTicker[] = ['iBonds', 'iBonds-HY', 'GHYG'];
+
+const LABELS: Record<BulletMixTicker, { name: string; subtitle: string }> = {
   iBonds: {
-    name: 'iBonds UCITS USD Corp IG',
-    subtitle: 'Ladder defined-maturity, Dec 2026–2034 + sintéticos. Investment-grade.',
+    name: 'iBonds IG (BlackRock)',
+    subtitle: 'Ladder defined-maturity 9 vintages Dec 2026–2034 + sintéticos. Investment-grade. Spread ~110bp.',
+  },
+  'iBonds-HY': {
+    name: 'iBonds HY (BlackRock)',
+    subtitle: 'Mini-ladder defined-maturity IU28 (Dec 2028) + IU29 (Dec 2029). High-yield, spread ~400bp. Lanzados Oct 2025 — solo 2 vintages disponibles hoy.',
   },
   GHYG: {
     name: 'GHYG',
-    subtitle: 'iShares Global HY Corp UCITS (perpetual). High-yield, ~$2B AUM.',
+    subtitle: 'iShares Global HY Corp UCITS (perpetual, ~$2B AUM). HY sin vencimiento — útil para complementar el HY ladder cuando se necesita exposición fuera del rango 2028–2029.',
   },
 };
 
 const DEFAULT_MIX: BulletMixItem[] = [
   { ticker: 'iBonds', weight: 1 },
+  { ticker: 'iBonds-HY', weight: 0 },
   { ticker: 'GHYG', weight: 0 },
 ];
 
+/**
+ * Aplica auto-balance al cambiar el peso de un componente:
+ * mantiene la suma en 1 reduciendo/aumentando proporcionalmente los otros.
+ * Si otros suman 0 y el target baja, se distribuye el delta equal-weight.
+ */
+function rebalance(
+  current: ReadonlyArray<BulletMixItem>,
+  changedTicker: BulletMixTicker,
+  newWeight: number,
+): BulletMixItem[] {
+  const target = Math.max(0, Math.min(1, newWeight));
+  const others = current.filter((m) => m.ticker !== changedTicker);
+  const othersSum = others.reduce((s, m) => s + m.weight, 0);
+  const remaining = 1 - target;
+  let nextOthers: BulletMixItem[];
+  if (othersSum > 1e-9) {
+    // Escala proporcional
+    const factor = remaining / othersSum;
+    nextOthers = others.map((m) => ({ ticker: m.ticker, weight: m.weight * factor }));
+  } else if (others.length > 0) {
+    // Otros estaban en 0: distribuir el remaining equal-weight entre ellos
+    nextOthers = others.map((m) => ({ ticker: m.ticker, weight: remaining / others.length }));
+  } else {
+    nextOthers = [];
+  }
+  // Reconstruir en el mismo orden de TICKERS
+  const byTicker = new Map<BulletMixTicker, number>();
+  byTicker.set(changedTicker, target);
+  for (const o of nextOthers) byTicker.set(o.ticker, o.weight);
+  return TICKERS.map((t) => ({ ticker: t, weight: byTicker.get(t) ?? 0 }));
+}
+
 export default function BulletMixSelector({ value, onChange }: Props) {
   const totalW = value.reduce((s, m) => s + m.weight, 0);
+  // isDefault: 100% iBonds IG, resto 0
   const isDefault =
-    value.length === 2 &&
     totalW > 0 &&
     (() => {
       const ig = value.find((m) => m.ticker === 'iBonds');
-      const hy = value.find((m) => m.ticker === 'GHYG');
-      return ig && hy && Math.abs(ig.weight / totalW - 1) < 1e-9 && Math.abs(hy.weight / totalW) < 1e-9;
+      return ig !== undefined && Math.abs(ig.weight / totalW - 1) < 1e-9;
     })();
 
-  const getWeight = (ticker: BulletMixItem['ticker']): number =>
+  const getWeight = (ticker: BulletMixTicker): number =>
     value.find((m) => m.ticker === ticker)?.weight ?? 0;
 
-  const setWeight = (ticker: BulletMixItem['ticker'], w: number) => {
-    const clamped = Math.max(0, Math.min(1, w));
-    const exists = value.some((m) => m.ticker === ticker);
-    const next: BulletMixItem[] = exists
-      ? value.map((m) => (m.ticker === ticker ? { ticker, weight: clamped } : { ...m }))
-      : [...value.map((m) => ({ ...m })), { ticker, weight: clamped }];
-    onChange(next);
+  const setWeight = (ticker: BulletMixTicker, w: number) => {
+    onChange(rebalance(value, ticker, w));
   };
 
   const reset = () => onChange(DEFAULT_MIX.map((m) => ({ ...m })));
@@ -65,13 +101,13 @@ export default function BulletMixSelector({ value, onChange }: Props) {
         <div className="text-xs text-mercantil-slate dark:text-mercantil-dark-slate">
           Mix actual:{' '}
           <strong className="text-mercantil-ink dark:text-mercantil-dark-ink">
-            {value
-              .map((m) => `${m.ticker} ${totalW > 0 ? Math.round((m.weight / totalW) * 100) : 0}%`)
+            {TICKERS
+              .map((t) => `${t} ${totalW > 0 ? Math.round((getWeight(t) / totalW) * 100) : 0}%`)
               .join(' · ')}
           </strong>
           {isDefault && (
             <span className="ml-2 text-mercantil-slate/70 dark:text-mercantil-dark-slate/70 italic">
-              (default — sin HY)
+              (default — 100% IG)
             </span>
           )}
         </div>
@@ -87,7 +123,7 @@ export default function BulletMixSelector({ value, onChange }: Props) {
       </div>
 
       <div className="space-y-2">
-        {(['iBonds', 'GHYG'] as const).map((ticker) => {
+        {TICKERS.map((ticker) => {
           const w = getWeight(ticker);
           const pctNorm = totalW > 0 ? (w / totalW) * 100 : 0;
           return (
@@ -112,21 +148,18 @@ export default function BulletMixSelector({ value, onChange }: Props) {
 }
 
 type RowProps = {
-  ticker: BulletMixItem['ticker'];
-  weight: number; // 0..1 raw (no normalizado)
+  ticker: BulletMixTicker;
+  weight: number; // 0..1
   pctNorm: number; // 0..100 normalizado
   onChange: (next: number) => void;
 };
 
 /**
- * Una fila del mix. Slider (rango 0–1) + input numérico draft local con %
- * relativo (0–100) para edición fina. Edita el peso raw del mix; el caller
- * normaliza al envío.
+ * Una fila del mix. Slider 0–100 + input numérico % con auto-balance.
+ * El draft del input se commitea en blur; el slider commitea en cada cambio.
  */
 function MixRow({ ticker, weight, pctNorm, onChange }: RowProps) {
   const label = LABELS[ticker];
-  // Draft para edición fina: el usuario tipea % raw (0..100). Si quiere 30%
-  // tipea 30 → weight = 0.30. Al blur, propaga.
   const [draft, setDraft] = useState<string>(`${Math.round(weight * 100)}`);
   const lastSyncedRef = useRef(weight);
 
