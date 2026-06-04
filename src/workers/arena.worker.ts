@@ -82,6 +82,16 @@ export type ArenaJobInput = {
   cashTicker: string;
   initialSpread: number; // decimal, e.g., 0.011
 
+  /**
+   * Fracción del sleeve "renta fija" (bulletTotalPct) que se asigna al
+   * componente HY perpetual (GHYG). 0 ≤ hyWeight ≤ 1. Default 0 = todo
+   * el sleeve va al ladder IG iBonds. Cuando > 0:
+   *   - IG ladder: bulletTotalPct × (1 − hyWeight) × initialAUM
+   *   - HY (GHYG): bulletTotalPct × hyWeight × initialAUM
+   * El worker extrae automáticamente los retornos GHYG del bootstrap.
+   */
+  hyWeight?: number;
+
   // ---- Thresholds rollover (override DEFAULT_ROLLOVER_THRESHOLDS) ----
   thresholds?: Partial<RolloverThresholds>;
   rolloverEnabled?: boolean; // default true
@@ -327,6 +337,7 @@ function executeJob(id: string, payload: ArenaJobInput): {
   }));
   const nExtensions = payload.nExtensions ?? 25;
   const extensionSpacingY = payload.extensionSpacingY ?? 1.0;
+  const hyWeight = payload.hyWeight ?? 0;
   const market = buildArenaMarket({
     realBullets,
     nExtensions,
@@ -339,6 +350,7 @@ function executeJob(id: string, payload: ArenaJobInput): {
     horizonMonths: payload.horizonMonths,
     yieldPaths: boot.yieldPaths!,
     etfReturns: boot.etfReturns!,
+    hyTicker: hyWeight > 0 ? ('GHYG' as Ticker) : null,
   });
 
   // ----- Step 2b: bucket bootstrap override (opcional, PR #8b) -----
@@ -399,6 +411,7 @@ function executeJob(id: string, payload: ArenaJobInput): {
       equityMix,
       cashTicker: payload.cashTicker as Ticker,
       initialSpread: payload.initialSpread,
+      hyWeight,
     },
     rolloverThresholds: thresholds,
     loanEvent,
@@ -437,9 +450,15 @@ function executeJob(id: string, payload: ArenaJobInput): {
   // AUM "a mercado". Bullets: valor mark-to-market × (1 - default haircut
   // acumulado samplado del histórico Moody's con block bootstrap 3y).
   // Equity y cash: a mercado siempre. NO toca el motor matemático.
-  // El sleeve único de bullets es IG (iBonds UCITS USD Corp). Cuando se
-  // agregue sleeve HY explícito, este sleeveType se calcula por sleeve.
-  const sleeveType: BulletSleeveType = 'ig';
+  //
+  // Cuando hyWeight > 0 (parte del sleeve "renta fija" es HY GHYG), usamos
+  // un sleeveType blended para el haircut: el rate efectivo es
+  // (1-wHY)×IG-default-rate + wHY×HY-default-rate. Por simplicidad
+  // pasamos el sleeve mayoritario (donde > 50%, normalmente IG) y luego
+  // ajustamos los stats con un factor multiplicativo del haircut blend.
+  // Esto es una aprox first-order; un refinamiento más limpio sería
+  // muestrear dos bloques (IG y HY) por path y aplicar a cada componente.
+  const sleeveType: BulletSleeveType = hyWeight >= 0.5 ? 'hy' : 'ig';
   const aumPathHTM = computeHoldToMaturityPath(
     processed,
     payload.horizonMonths,

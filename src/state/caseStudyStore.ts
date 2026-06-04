@@ -55,6 +55,20 @@ export type CaseStudyConfig = {
    */
   equityMix: ReadonlyArray<{ ticker: string; weight: number }>;
   /**
+   * Mix interno del sleeve "renta fija" (bullets). Dos componentes:
+   *  - iBonds: ladder iBonds UCITS USD Corp IG (defined-maturity)
+   *  - GHYG: iShares Global HY Corp UCITS ETF (perpetual)
+   *
+   * Pesos normalizan al envío (suma puede ser >1 o <1 en draft del UI).
+   * El componente HY se opera diferente del ladder IG:
+   *  - No tiene vencimientos naturales (no entra al rollover táctico)
+   *  - Se vende ANTES que bullets en cascada de pago (cash → equity → HY → bullets)
+   *  - Compounding con returns observados de GHYG (modelo híbrido del bootstrap)
+   *
+   * Default: iBonds 100%, GHYG 0% — preserva el comportamiento TBSC inicial.
+   */
+  bulletMix: ReadonlyArray<{ ticker: 'iBonds' | 'GHYG'; weight: number }>;
+  /**
    * Override de la tasa inicial del DPF1Y baseline (decimal anual, e.g.,
    * 0.0525 = 5.25%). Útil cuando el cliente trae una oferta concreta del
    * banco. Si null, se usa UST1Y inicial + initialSpread (default).
@@ -132,6 +146,10 @@ export const DEFAULT_CASE_CONFIG: CaseStudyConfig = {
     { ticker: 'USMV', weight: 0.5 },
     { ticker: 'SCHD', weight: 0.5 },
   ],
+  bulletMix: [
+    { ticker: 'iBonds', weight: 1 },
+    { ticker: 'GHYG', weight: 0 },
+  ],
   allInFeeBps: 0,
   clientResidency: 'offshore',
   bulletReturnsEngine: 'parametric', // default preserva paridad Python
@@ -154,6 +172,16 @@ export function configToJobInput(
     ticker: m.ticker,
     weight: m.weight / totalW,
   }));
+
+  // Normaliza bulletMix. Default si vacío o suma=0: 100% iBonds.
+  let hyWeight = 0;
+  const bulletTotalW = config.bulletMix.reduce((s, m) => s + m.weight, 0);
+  if (bulletTotalW > 0) {
+    const hyEntry = config.bulletMix.find((m) => m.ticker === 'GHYG');
+    hyWeight = hyEntry ? hyEntry.weight / bulletTotalW : 0;
+  }
+  // Clamp por seguridad — el motor lanza si está fuera de [0,1]
+  hyWeight = Math.max(0, Math.min(1, hyWeight));
   // Lineup INICIAL explícito: solo iBonds UCITS reales (Dec 2026 – Dec 2034).
   // Estos son los productos que el cliente offshore PUEDE COMPRAR HOY en el
   // mercado UCITS. NO se incluyen sintéticos en el lineup inicial — no hay
@@ -214,6 +242,7 @@ export function configToJobInput(
     eqtyMin: config.eqtyMin,
     eqtyMax: config.eqtyMax,
     equityMix: equityMixNormalized,
+    hyWeight,
     cashTicker: 'BIL',
     initialSpread: config.initialSpread,
     thresholds: config.thresholds,
