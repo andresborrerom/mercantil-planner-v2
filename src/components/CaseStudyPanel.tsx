@@ -40,6 +40,12 @@ import BulletMixSelector from './BulletMixSelector';
 import EstudioMedidaActions from './EstudioMedidaActions';
 import { useEquityCatalogByTicker } from '../hooks/useEquityMeta';
 import { useTTMPanel } from '../hooks/useTTMPanel';
+import {
+  computeAnnInflationInWindow,
+  computeConditionalStats,
+  evaluateInflationView,
+  unconditionalInflationDistribution,
+} from '../domain/inflationView';
 import { useArenaWorker } from '../hooks/useArenaWorker';
 import {
   configToJobInput,
@@ -67,6 +73,37 @@ function pctPath(
     const sorted = Float64Array.from(col);
     sorted.sort();
     out.push(ps.map((p) => sorted[Math.floor(p * (nSims - 1))]));
+  }
+  return out;
+}
+
+/**
+ * Versión de pctPath que opera SOLO sobre un subset de sims (matchedIndices).
+ * Usada cuando hay conditioning activo — los percentiles condicionales se
+ * computan sobre el subset que cumple la vista. Si subsetIndices es null o
+ * length=nSims, equivale a pctPath sobre todas las sims.
+ */
+function pctPathSubset(
+  arr: Float64Array,
+  nSims: number,
+  Hp1: number,
+  ps: readonly number[],
+  subsetIndices: Uint32Array | null,
+): number[][] {
+  if (subsetIndices === null) return pctPath(arr, nSims, Hp1, ps);
+  const n = subsetIndices.length;
+  if (n === 0) {
+    // Sin sims condicionales: devolvemos NaN para todos los percentiles.
+    // El caller decide si mostrar warning o data degradada.
+    return Array.from({ length: Hp1 }, () => ps.map(() => NaN));
+  }
+  const out: number[][] = [];
+  const col = new Float64Array(n);
+  for (let t = 0; t < Hp1; t++) {
+    for (let i = 0; i < n; i++) col[i] = arr[subsetIndices[i] * Hp1 + t];
+    const sorted = Float64Array.from(col);
+    sorted.sort();
+    out.push(ps.map((p) => sorted[Math.floor(p * (n - 1))]));
   }
   return out;
 }
@@ -561,6 +598,69 @@ export default function CaseStudyPanel() {
   //
   // `deposit`: serie temporal del baseline "solo ahorrar sin invertir". Arranca
   // en initialAUM y crece cada mes por el inflow correspondiente. NO es una
+  // Conditioning por vista de inflación. Si está habilitado, computamos
+  // la evaluación de la vista (subset de sims que cumplen) y la usamos
+  // para subsetear los percentiles del chart y los stats. Si está
+  // deshabilitado, viewEvaluation queda null y se opera sobre todas las sims.
+  const viewEvaluation = useMemo(() => {
+    if (!result) return null;
+    if (!config.inflationConditioningEnabled) return null;
+    return evaluateInflationView(
+      result.inflationIndexPath,
+      result.meta.nSims,
+      result.meta.horizonMonths,
+      {
+        windowMonths: config.inflationConditioningHorizonMonths,
+        minPct: config.inflationConditioningMinPct,
+        maxPct: config.inflationConditioningMaxPct,
+      },
+    );
+  }, [
+    result,
+    config.inflationConditioningEnabled,
+    config.inflationConditioningHorizonMonths,
+    config.inflationConditioningMinPct,
+    config.inflationConditioningMaxPct,
+  ]);
+
+  // Stats condicionales: cuando viewEvaluation tiene matchedIndices, recompute
+  // los stats clave sobre ese subset. Cuando no hay conditioning o no hubo
+  // match, fallback a result.stats (lo que el worker computó sobre todas las sims).
+  const effectiveStats = useMemo(() => {
+    if (!result) return null;
+    if (!viewEvaluation || viewEvaluation.nMatched === 0) return result.stats;
+    const sub = computeConditionalStats({
+      aumPath: result.aumPath,
+      netWealthPath: result.netWealthPath,
+      inflationIndexPath: result.inflationIndexPath,
+      initialAum: result.stats.initialAum,
+      totalInflows: result.stats.totalInflows,
+      horizonMonths: result.meta.horizonMonths,
+      nSims: result.meta.nSims,
+      matchedIndices: viewEvaluation.matchedIndices,
+    });
+    // Mergear: stats originales (campos que NO se recomputan, e.g. loanCumInterestMed)
+    // + los recomputados desde el subset
+    return {
+      ...result.stats,
+      ...sub,
+    };
+  }, [result, viewEvaluation]);
+
+  // Distribución unconditional de la inflación en la ventana (siempre, para
+  // que la UI muestre "rango natural del modelo" como referencia visual).
+  // Se consume en el panel de conditioning (Step 4 de PR #21).
+  const unconditionalInflStats = useMemo(() => {
+    if (!result) return null;
+    const ann = computeAnnInflationInWindow(
+      result.inflationIndexPath,
+      result.meta.nSims,
+      result.meta.horizonMonths,
+      config.inflationConditioningHorizonMonths,
+    );
+    return unconditionalInflationDistribution(ann);
+  }, [result, config.inflationConditioningHorizonMonths]);
+
   // línea horizontal — es una piecewise-linear que sube con cada aporte. Con
   // growth=0 queda casi recta; con growth>0 los escalones se aceleran cada año.
   //
@@ -588,12 +688,17 @@ export default function CaseStudyPanel() {
         htmSource[i] = result.aumPathHTM[i] / f;
       }
     }
+    // Conditioning: si la vista está habilitada y matcheó ≥1 sim, usamos el
+    // subset de matchedIndices. Si no, todas las sims (comportamiento previo).
+    const subsetIndices = viewEvaluation && viewEvaluation.nMatched > 0
+      ? viewEvaluation.matchedIndices
+      : null;
     // AUM "a mercado" — valoración estándar mark-to-market con curva + spread.
-    const netPct = pctPath(aumSource, nSims, Hp1, ps);
+    const netPct = pctPathSubset(aumSource, nSims, Hp1, ps, subsetIndices);
     // AUM "a vencimiento" (HTM) — bullets con haircut por defaults (bootstrap
     // Moody's), curva y spread NO afectan la valuación de bullets vivos.
     // Equity y cash siempre a mercado. Banda típicamente mucho más angosta.
-    const htmPct = pctPath(htmSource, nSims, Hp1, ps);
+    const htmPct = pctPathSubset(htmSource, nSims, Hp1, ps, subsetIndices);
     type Point = {
       month: number;
       // Mark-to-market (valoración estándar)
@@ -654,7 +759,7 @@ export default function CaseStudyPanel() {
       }
     }
     return data;
-  }, [result, config.inflowBaseAnnual, config.inflowGrowth, savedVariants, variantMedians, dpfBaselineBands, returnView]);
+  }, [result, config.inflowBaseAnnual, config.inflowGrowth, savedVariants, variantMedians, dpfBaselineBands, returnView, viewEvaluation]);
 
   // Referencia simple: capital inicial es la única línea horizontal del chart.
   const initialAumM = result ? result.stats.initialAum / 1e6 : 0;
@@ -1057,6 +1162,72 @@ export default function CaseStudyPanel() {
           </div>
         </fieldset>
 
+        {/* --- Vista condicional de inflación (opcional) --- */}
+        <fieldset className="space-y-2">
+          <legend className="text-xs uppercase tracking-wider text-mercantil-slate dark:text-mercantil-dark-slate font-medium">
+            <label className="flex items-center gap-2 cursor-pointer select-none">
+              <input
+                type="checkbox"
+                checked={config.inflationConditioningEnabled}
+                onChange={(e) => setConfig({ inflationConditioningEnabled: e.target.checked })}
+                className="accent-mercantil-orange h-3.5 w-3.5"
+              />
+              Vista condicional de inflación (opcional)
+            </label>
+          </legend>
+          {config.inflationConditioningEnabled && (
+            <div className="pl-5 space-y-2">
+              <p className="text-[11px] text-mercantil-slate dark:text-mercantil-dark-slate">
+                Filtra las sims donde la inflación anualizada acumulada en los próximos N meses cae en el rango.
+                El chart y los stats se computan solo sobre el subset. No re-corre la simulación — opera sobre el bootstrap.
+              </p>
+              <div className="grid grid-cols-3 gap-3">
+                <NumInput
+                  label="Horizonte (meses)"
+                  value={config.inflationConditioningHorizonMonths}
+                  onChange={(v) => setConfig({ inflationConditioningHorizonMonths: Math.round(v) })}
+                  step={6}
+                  min={1}
+                  max={config.horizonMonths}
+                  hint={`= ${(config.inflationConditioningHorizonMonths / 12).toFixed(1)} años`}
+                />
+                <NumInput
+                  label="Mín %"
+                  value={config.inflationConditioningMinPct * 100}
+                  onChange={(v) => setConfig({ inflationConditioningMinPct: v / 100 })}
+                  step={0.25}
+                  min={-5}
+                  max={20}
+                  suffix="%"
+                />
+                <NumInput
+                  label="Máx %"
+                  value={config.inflationConditioningMaxPct * 100}
+                  onChange={(v) => setConfig({ inflationConditioningMaxPct: v / 100 })}
+                  step={0.25}
+                  min={-5}
+                  max={20}
+                  suffix="%"
+                />
+              </div>
+              {config.inflationConditioningMinPct >= config.inflationConditioningMaxPct && (
+                <p className="text-[11px] text-red-600 dark:text-red-400">
+                  ⚠ El mínimo debe ser menor al máximo.
+                </p>
+              )}
+              {/* Display de evaluación viva — solo cuando hay result.
+                  Muestra: rango natural del modelo (referencia) + % sims que
+                  caen en la vista del usuario + warning si es muy raro */}
+              {result && unconditionalInflStats && viewEvaluation && (
+                <ConditioningEvaluationDisplay
+                  view={viewEvaluation}
+                  unconditional={unconditionalInflStats}
+                />
+              )}
+            </div>
+          )}
+        </fieldset>
+
         {/* --- Evento de financiamiento (préstamo o venta) --- */}
         <fieldset className="space-y-2">
           <legend className="text-xs uppercase tracking-wider text-mercantil-slate dark:text-mercantil-dark-slate font-medium">
@@ -1270,18 +1441,22 @@ export default function CaseStudyPanel() {
       {/* ============== RESULTS ============== */}
       {result && (
         <div className="space-y-4">
-          {/* Stats card nominal */}
+          {/* Stats card nominal — effectiveStats refleja el subset cuando hay
+              conditioning activo. result.stats sigue siendo el referente
+              unconditional. */}
           <div className="bg-white dark:bg-mercantil-dark-panel rounded-lg border border-mercantil-line dark:border-mercantil-dark-line p-5">
             <h3 className="text-sm uppercase tracking-wider text-mercantil-slate dark:text-mercantil-dark-slate font-medium mb-3">
-              Stats finales nominales (sobre {result.meta.nSims} simulaciones)
+              Stats finales nominales (sobre {viewEvaluation && viewEvaluation.nMatched > 0
+                ? `${viewEvaluation.nMatched} de ${result.meta.nSims} sims condicionales`
+                : `${result.meta.nSims} simulaciones`})
             </h3>
             <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-4">
-              <StatBox label="Retorno anual mediano" value={fmtPct(result.stats.annNetMed)} />
-              <StatBox label="Anual p5" value={fmtPct(result.stats.annNetP5)} />
-              <StatBox label="Anual p95" value={fmtPct(result.stats.annNetP95)} />
-              <StatBox label="Prob > 0" value={fmtPct(result.stats.probPos, 0)} />
-              <StatBox label="AUM final mediano" value={fmtMoney(result.stats.finalAumMed)} />
-              <StatBox label="Net wealth mediano" value={fmtMoney(result.stats.finalNetMed)} />
+              <StatBox label="Retorno anual mediano" value={fmtPct((effectiveStats ?? result.stats).annNetMed)} />
+              <StatBox label="Anual p5" value={fmtPct((effectiveStats ?? result.stats).annNetP5)} />
+              <StatBox label="Anual p95" value={fmtPct((effectiveStats ?? result.stats).annNetP95)} />
+              <StatBox label="Prob > 0" value={fmtPct((effectiveStats ?? result.stats).probPos, 0)} />
+              <StatBox label="AUM final mediano" value={fmtMoney((effectiveStats ?? result.stats).finalAumMed)} />
+              <StatBox label="Net wealth mediano" value={fmtMoney((effectiveStats ?? result.stats).finalNetMed)} />
             </div>
           </div>
 
@@ -1293,14 +1468,17 @@ export default function CaseStudyPanel() {
             <p className="text-xs text-mercantil-slate dark:text-mercantil-dark-slate mb-3">
               AUM deflactado mes a mes por inflación bootstrapped (FRED CPIAUCSL acoplada a yields).
               Si el AUM real final ≥ AUM inicial, el endowment preservó poder adquisitivo.
+              {viewEvaluation && viewEvaluation.nMatched > 0 && (
+                <span className="ml-1 italic">Stats computados sobre subset condicional.</span>
+              )}
             </p>
             <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-4">
-              <StatBox label="Retorno real anual mediano" value={fmtPct(result.stats.realAnnNetMed)} />
-              <StatBox label="Real anual p5" value={fmtPct(result.stats.realAnnNetP5)} />
-              <StatBox label="Real anual p95" value={fmtPct(result.stats.realAnnNetP95)} />
-              <StatBox label="Preservó poder adq." value={fmtPct(result.stats.realProbPreservedPower, 0)} />
-              <StatBox label="AUM real final" value={fmtMoney(result.stats.realFinalAumMed)} />
-              <StatBox label="Net wealth real" value={fmtMoney(result.stats.realFinalNetMed)} />
+              <StatBox label="Retorno real anual mediano" value={fmtPct((effectiveStats ?? result.stats).realAnnNetMed)} />
+              <StatBox label="Real anual p5" value={fmtPct((effectiveStats ?? result.stats).realNetReturnP5)} />
+              <StatBox label="Real anual p95" value={fmtPct((effectiveStats ?? result.stats).realNetReturnP95)} />
+              <StatBox label="Preservó poder adq." value={fmtPct((effectiveStats ?? result.stats).realProbPreservedPower, 0)} />
+              <StatBox label="AUM real final" value={fmtMoney((effectiveStats ?? result.stats).realFinalAumMed)} />
+              <StatBox label="Net wealth real" value={fmtMoney((effectiveStats ?? result.stats).realFinalNetMed)} />
             </div>
           </div>
 
@@ -1997,6 +2175,55 @@ function VariantRow({
       >
         ×
       </button>
+    </div>
+  );
+}
+
+/**
+ * Display lateral del conditioning: muestra el rango natural del modelo
+ * para la ventana actual + % de sims que caen en la vista del usuario.
+ * El color del % refleja la robustez estadística:
+ *  - verde: ≥1000 sims condicionales → análisis confiable
+ *  - amarillo: 200-999 → análisis aceptable con caveat
+ *  - rojo: <200 → vista demasiado rara, considerar ampliar
+ */
+function ConditioningEvaluationDisplay({
+  view,
+  unconditional,
+}: {
+  view: { nMatched: number; nTotal: number; probability: number; standardError: number };
+  unconditional: { p5: number; p25: number; p50: number; p75: number; p95: number; mean: number };
+}) {
+  const pct = (x: number) => `${(x * 100).toFixed(2)}%`;
+  let badgeColor = 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-300';
+  let badgeText = 'análisis confiable';
+  if (view.nMatched < 200) {
+    badgeColor = 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-300';
+    badgeText = 'vista muy rara — considerá ampliar el rango';
+  } else if (view.nMatched < 1000) {
+    badgeColor = 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300';
+    badgeText = 'banda con incertidumbre estadística mayor';
+  }
+  return (
+    <div className="mt-2 p-2 rounded border border-mercantil-line dark:border-mercantil-dark-line bg-mercantil-bg-soft/30 dark:bg-mercantil-dark-panel/40 text-[11px] space-y-1">
+      <div>
+        <span className="text-mercantil-slate dark:text-mercantil-dark-slate">Rango natural del modelo (sin condicionar):</span>{' '}
+        <span className="font-medium text-mercantil-ink dark:text-mercantil-dark-ink tabular-nums">
+          p5={pct(unconditional.p5)} · p50={pct(unconditional.p50)} · p95={pct(unconditional.p95)}
+        </span>
+      </div>
+      <div className="flex items-baseline gap-2 flex-wrap">
+        <span className="text-mercantil-slate dark:text-mercantil-dark-slate">Tu vista corresponde al</span>
+        <span className="font-semibold tabular-nums text-mercantil-orange">
+          {pct(view.probability)}
+        </span>
+        <span className="text-mercantil-slate dark:text-mercantil-dark-slate">
+          de las sims ({view.nMatched} de {view.nTotal} · SE ±{(view.standardError * 100).toFixed(2)}pp)
+        </span>
+      </div>
+      <div className={`inline-block px-2 py-0.5 rounded ${badgeColor}`}>
+        {badgeText}
+      </div>
     </div>
   );
 }

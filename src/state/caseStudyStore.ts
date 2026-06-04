@@ -127,6 +127,21 @@ export type CaseStudyConfig = {
    * entregable TBSC. El usuario opta in via toggle en sección Avanzado.
    */
   bulletReturnsEngine: 'parametric' | 'bucket-bootstrap';
+  /**
+   * Condicionamiento por vista de inflación. Cuando enabled=true, el chart
+   * y los stats se computan SOLO sobre las sims donde la inflación
+   * anualizada acumulada en `inflationConditioningHorizonMonths` cae en
+   * [inflationConditioningMinPct, inflationConditioningMaxPct] decimal.
+   *
+   * Default: deshabilitado, horizonte=36 (3y), rango=[0%, 10%] (= todo el
+   * rango plausible, así si el usuario lo prende sin tocar nada todavía
+   * ve casi todas las sims pasar el filtro). Auto-scaling de nSims al
+   * commitear si el filtro deja <1000 sims (regla §4 del modelo).
+   */
+  inflationConditioningEnabled: boolean;
+  inflationConditioningHorizonMonths: number;
+  inflationConditioningMinPct: number; // decimal anual, e.g. 0.02 = 2%
+  inflationConditioningMaxPct: number;
 };
 
 export const DEFAULT_CASE_CONFIG: CaseStudyConfig = {
@@ -164,6 +179,10 @@ export const DEFAULT_CASE_CONFIG: CaseStudyConfig = {
   allInFeeBps: 0,
   clientResidency: 'offshore',
   bulletReturnsEngine: 'parametric', // default preserva paridad Python
+  inflationConditioningEnabled: false,
+  inflationConditioningHorizonMonths: 36, // 3y default
+  inflationConditioningMinPct: 0,
+  inflationConditioningMaxPct: 0.10, // 10% — rango histórico amplio
 };
 
 /** Convierte CaseStudyConfig → ArenaJobInput aplicando defaults fijos. */
