@@ -552,6 +552,7 @@ export function runArena(
     bullets: plan.bulletTotalPct,
     equity: plan.equityPct,
     cash: plan.cashPct,
+    realAssets: realAssetsPct, // 0 cuando el sleeve no está activo
   };
 
   // Buffer reusable para `cashflowStep` market.yStateT (per-sim curva al cierre del mes t)

@@ -380,6 +380,8 @@ export function configToJobInput(
     eqtyMax: config.eqtyMax,
     equityMix: equityMixNormalized,
     hyWeight,
+    realAssetsPct: config.realAssetsPct,
+    realAssetsMix: config.realAssetsMix.map((m) => ({ ticker: m.ticker, weight: m.weight })),
     cashTicker: 'BIL',
     initialSpread: config.initialSpread,
     thresholds: config.thresholds,
