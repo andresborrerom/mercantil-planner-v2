@@ -43,7 +43,7 @@ const EXPECTED_TICKERS = [
   'SPHQ', 'SPYD', 'OEF', 'QQQ', 'RSP', 'SPMO', 'CAPE',
   // v2 PR #D-2 (2026-06-04): INFL para sleeve Activos Reales.
   // INFL = Horizon Kinetics Inflation Beneficiaries (lanzado 2021-01).
-  // Pre-2021 imputado con proxy IXC (Energy global, captures commodities producers).
+  // Pre-2021 rellenado con basket sintético (build-infl-proxy.mjs) — sin NaN.
   'INFL',
 ];
 
@@ -96,11 +96,9 @@ const NAN_PROXY_MAP = {
   SPMO: 'SPY', //   S&P Momentum factor → US blend (splice c/ PDP arranca 2007-04; restan 15m a SPY)
   CAPE: 'IWD', //   Shiller CAPE rotation → US value (splice c/ RPV arranca 2006-04; restan 3m a IWD)
   SPYD: 'SCHD', //  S&P high-dividend top-80 → dividend equity (lanzado 2015-10; 118m via SCHD→IWD transitivo)
-  // v2 PR #D-2: INFL launched 2021-01 → 181 meses (2006-01 a 2020-12) imputados
-  // con IXC (Energy global). Plausible proxy: INFL invierte en commodities
-  // producers, royalty companies, asset-light businesses; IXC captures el
-  // segmento energy de eso. Documentado al cliente como aproximación.
-  INFL: 'IXC',
+  // INFL: NO proxy aquí. Pre-2021 ya está rellenado con basket sintético
+  // (SPY/IAI/IXC/GDX × 0.92 shrinkage) vía scripts/build-infl-proxy.mjs.
+  // Ver ese script para el racional del basket y la calibración del β.
 };
 
 // --------------------------------------------------------------------------
