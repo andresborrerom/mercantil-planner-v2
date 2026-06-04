@@ -1034,6 +1034,16 @@ export default function CaseStudyPanel() {
               min={50}
               max={10000}
             />
+            <NumInput
+              label="All-in fee"
+              value={config.allInFeeBps}
+              onChange={(v) => setConfig({ allInFeeBps: Math.round(v) })}
+              step={5}
+              min={0}
+              max={500}
+              suffix="bp/yr"
+              hint={config.allInFeeBps > 0 ? `${(config.allInFeeBps / 100).toFixed(2)}% · TER + custodia + asesoría` : 'TER + custodia + asesoría'}
+            />
           </div>
         </fieldset>
 
@@ -1382,7 +1392,7 @@ export default function CaseStudyPanel() {
             onClick={() => setShowAdvanced((v) => !v)}
             className="text-xs text-mercantil-slate dark:text-mercantil-dark-slate hover:text-mercantil-orange"
           >
-            {showAdvanced ? '▼' : '▶'} Avanzado (spread bullets, all-in fee, thresholds rollover A/B/C)
+            {showAdvanced ? '▼' : '▶'} Avanzado (spread bullets, thresholds rollover A/B/C)
           </button>
           {showAdvanced && (
             <div className="mt-3 space-y-3 border-l-2 border-mercantil-line dark:border-mercantil-dark-line pl-4">
@@ -1396,16 +1406,6 @@ export default function CaseStudyPanel() {
                   max={500}
                   suffix="bp"
                   hint="sobre treasury"
-                />
-                <NumInput
-                  label="All-in fee"
-                  value={config.allInFeeBps}
-                  onChange={(v) => setConfig({ allInFeeBps: Math.round(v) })}
-                  step={5}
-                  min={0}
-                  max={500}
-                  suffix="bp/yr"
-                  hint="TER + custodia + asesoría"
                 />
               </div>
               {config.allInFeeBps > 0 && (
