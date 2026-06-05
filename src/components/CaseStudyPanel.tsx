@@ -1547,8 +1547,8 @@ export default function CaseStudyPanel() {
             </p>
             <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-4">
               <StatBox label="Retorno real anual mediano" value={fmtPct((effectiveStats ?? result.stats).realAnnNetMed)} />
-              <StatBox label="Real anual p5" value={fmtPct((effectiveStats ?? result.stats).realNetReturnP5)} />
-              <StatBox label="Real anual p95" value={fmtPct((effectiveStats ?? result.stats).realNetReturnP95)} />
+              <StatBox label="Real anual p5" value={fmtPct((effectiveStats ?? result.stats).realAnnNetP5)} />
+              <StatBox label="Real anual p95" value={fmtPct((effectiveStats ?? result.stats).realAnnNetP95)} />
               <StatBox label="Preservó poder adq." value={fmtPct((effectiveStats ?? result.stats).realProbPreservedPower, 0)} />
               <StatBox label="AUM real final" value={fmtMoney((effectiveStats ?? result.stats).realFinalAumMed)} />
               <StatBox label="Net wealth real" value={fmtMoney((effectiveStats ?? result.stats).realFinalNetMed)} />

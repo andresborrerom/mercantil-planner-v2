@@ -683,6 +683,7 @@ type ArenaOutLike = {
   aumPath: Float64Array;
   netWealthPath: Float64Array;
   sleevePath: Float64Array;
+  realAssetsPath: Float64Array;
   loanBalancePath: Float64Array;
   dpfBaselinePath: Float64Array;
   events: ArenaEvent[];
@@ -953,16 +954,17 @@ function computeHoldToMaturityPath(
       void yearOfT;
     }
 
-    // Aplicar a cada mes: HTM[s][t] = bullets[s][t] × (1 - hc) + equity[s][t] + cash[s][t]
-    // Per-path en los 3 sleeves → la dispersión cross-path refleja
-    // diferencias en yield paths (rollover dispersion en bullets, equity
-    // moves, cash moves) y en haircut (block bootstrap de Moody's).
+    // Aplicar a cada mes: HTM[s][t] = bullets[s][t] × (1 - hc) + equity[s][t] + cash[s][t] + realAssets[s][t]
+    // Real assets se valoran a mercado (no tienen concepto HTM — son equity de
+    // royalty companies, exchanges, etc.). Si se omitiera, HTM[t=0] arrancaría
+    // más abajo que MtM por el monto del sleeve realAssets.
     for (let t = 0; t < Hp1; t++) {
       const base = (s * Hp1 + t) * 3;
       const bullets = out.sleevePath[base + 0];
       const equity = out.sleevePath[base + 1];
       const cash = out.sleevePath[base + 2];
-      aumHTM[s * Hp1 + t] = bullets * (1 - haircut[t]) + equity + cash;
+      const realAssets = out.realAssetsPath[s * Hp1 + t];
+      aumHTM[s * Hp1 + t] = bullets * (1 - haircut[t]) + equity + cash + realAssets;
     }
   }
 
