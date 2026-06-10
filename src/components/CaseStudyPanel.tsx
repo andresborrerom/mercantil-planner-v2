@@ -39,6 +39,7 @@ import EquityMixSelector from './EquityMixSelector';
 import BulletMixSelector from './BulletMixSelector';
 import RealAssetsMixSelector from './RealAssetsMixSelector';
 import EstudioMedidaActions from './EstudioMedidaActions';
+import ExposureDrillDownPanel from './ExposureDrillDownPanel';
 import { useEquityCatalogByTicker } from '../hooks/useEquityMeta';
 import { useTTMPanel } from '../hooks/useTTMPanel';
 import {
@@ -1554,9 +1555,11 @@ export default function CaseStudyPanel() {
               <StatBox label="Net wealth real" value={fmtMoney((effectiveStats ?? result.stats).realFinalNetMed)} />
             </div>
           </div>
-
           {/* Detalle de sleeves (collapsible) */}
           <SleevesDetailPanel config={config} />
+
+          {/* Drill-down de exposición — geografía / sectores / calidad crediticia (#28) */}
+          <ExposureDrillDownPanel config={config} />
 
           {/* Rollover regimes — panel explicativo con barras + cards collapsible */}
           <RegimesDetailPanel result={result} config={config} totalEvents={totalEvents} />
