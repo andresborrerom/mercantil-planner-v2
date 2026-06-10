@@ -362,7 +362,7 @@ export default function ExposureDrillDownPanel({ config }: { config: CaseStudyCo
   };
 
   return (
-    <div className="bg-white dark:bg-mercantil-dark-panel rounded-lg border border-mercantil-line dark:border-mercantil-dark-line p-5">
+    <div data-testid="exposure-panel" className="bg-white dark:bg-mercantil-dark-panel rounded-lg border border-mercantil-line dark:border-mercantil-dark-line p-5">
       <div className="flex items-baseline justify-between gap-3 mb-1 flex-wrap">
         <h3 className="text-sm uppercase tracking-wider text-mercantil-slate dark:text-mercantil-dark-slate font-medium">
           Exposición del portafolio

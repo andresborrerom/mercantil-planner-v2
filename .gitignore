@@ -18,3 +18,6 @@ research/samples/
 
 # tbsc:demo output (regenerar con `npm run tbsc:demo`)
 outputs/
+
+# Screenshots ad-hoc (regenerar con `npx playwright test screenshot-exposure-panel`)
+tmp/
