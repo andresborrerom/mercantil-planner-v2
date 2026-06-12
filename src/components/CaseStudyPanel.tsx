@@ -40,6 +40,7 @@ import BulletMixSelector from './BulletMixSelector';
 import RealAssetsMixSelector from './RealAssetsMixSelector';
 import EstudioMedidaActions from './EstudioMedidaActions';
 import ExposureDrillDownPanel from './ExposureDrillDownPanel';
+import RiskPanel from './RiskPanel';
 import { useEquityCatalogByTicker } from '../hooks/useEquityMeta';
 import { useTTMPanel } from '../hooks/useTTMPanel';
 import {
@@ -1560,6 +1561,9 @@ export default function CaseStudyPanel() {
 
           {/* Drill-down de exposición — geografía / sectores / calidad crediticia (#28) */}
           <ExposureDrillDownPanel config={config} />
+
+          {/* Atribución de riesgo — Component VaR / scatter / heatmap (#28 follow-up) */}
+          <RiskPanel config={config} initialAum={config.initialAumUsd} />
 
           {/* Rollover regimes — panel explicativo con barras + cards collapsible */}
           <RegimesDetailPanel result={result} config={config} totalEvents={totalEvents} />
