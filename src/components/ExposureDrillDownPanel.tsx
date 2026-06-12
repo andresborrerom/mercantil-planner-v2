@@ -1,26 +1,28 @@
 /**
- * ExposureDrillDownPanel — vista de exposición del portafolio.
+ * ExposureDrillDownPanel — vista de exposición del portafolio (Sankey).
  *
  * Issue #28. Complemento estructural al fan chart: responde "¿a qué está
  * expuesto el fondo HOY?" mientras el chart responde "¿cómo le va a ir?".
  *
- * Tres dimensiones (tabs):
- *   - Geografía (US / DM-ex-US / EM)
- *   - Sectores (GICS-like ~11 buckets + Treasury/MBS para bonds)
- *   - Calidad crediticia (IG / HY / Treasury / Equity)
+ * Tres dimensiones (tabs): Geografía / Sectores / Calidad crediticia.
  *
- * Tres niveles de agregación (renderizados los 3 simultáneamente):
- *   - Portafolio: barra única con el split total
- *   - Por sleeve: 1 barra por sleeve (Bullets / Equity / Cash / RealAssets)
- *   - Por ETF: tabla con cada ETF (collapsible)
+ * Visualización: diagrama Sankey de 3 capas que cuenta la cascada
+ *   Sleeve → ETF → Categoría
+ *
+ * Cada cinta tiene grosor proporcional al peso AUM. Color del flujo
+ * heredado del sleeve origen (Bullets=navy, Equity=orange, Cash=slate,
+ * RealAssets=gold). Tabla compacta abajo con totales por categoría.
+ *
+ * Para sectores con >8 buckets, los pequeños se colapsan en "Otros".
+ * Cuando un ETF no tiene breakdown para la dimensión (ej. CAPE), su flujo
+ * va a un nodo "Sin clasificar" — la cinta siempre balancea el AUM.
  *
  * Data viene de src/data/etf-exposure.ts (auto-generado desde EODHD +
- * overrides manuales iBoxx para bonds). Si un ETF no tiene geo/sectors
- * (ej. CAPE ETN), su peso aparece como "Sin clasificar" para mantener
- * el bar al 100%.
+ * overrides manuales iBoxx para bonds).
  */
 
 import { useMemo, useState } from 'react';
+import { Sankey, Tooltip } from 'recharts';
 import type { CaseStudyConfig } from '../state/caseStudyStore';
 import {
   ETF_EXPOSURE,
@@ -38,42 +40,25 @@ const SLEEVE_LABELS: Record<SleeveName, string> = {
 };
 
 const SLEEVE_COLORS: Record<SleeveName, string> = {
-  Bullets:    '#003566', // navy
-  Equity:     '#E97031', // orange
-  Cash:       '#6B7280', // slate gray
-  RealAssets: '#C9A84C', // gold
+  Bullets:    '#003566',
+  Equity:     '#E97031',
+  Cash:       '#6B7280',
+  RealAssets: '#C9A84C',
 };
 
-/**
- * Posición agregada por ticker (no por vintage individual). Para `iBonds`
- * (IG ladder de 9 vintages), usamos IBDS como representativo — todas las
- * vintages tienen el mismo perfil de exposure (iBoxx Liquid IG index).
- */
 type Position = {
-  /** Ticker del ETF_EXPOSURE para lookup. */
   exposureTicker: string;
-  /** Label client-facing (puede agrupar vintages — "iBonds IG ladder"). */
+  /** Label largo (tooltip). */
   label: string;
-  /** Peso del AUM total (0..1). */
+  /** Label corto para mostrar en el nodo del Sankey. */
+  shortLabel: string;
   weight: number;
   sleeve: SleeveName;
 };
 
-/**
- * Expande el config en posiciones por ETF agregadas. Cada posición tiene
- * un peso AUM (0..1) que es: (sleeve allocation) × (ticker weight within sleeve).
- *
- * Convenciones:
- *  - Bullets · iBonds → representado por IBDS (proxy del ladder IG completo,
- *    todas las vintages comparten exposure profile)
- *  - Bullets · iBonds-HY → representado por HYG (proxy del underlying iBoxx HY)
- *  - Bullets · GHYG → directo
- *  - Cash → BIL (cashTicker fijo en el store)
- */
 function expandConfigToPositions(config: CaseStudyConfig): Position[] {
   const positions: Position[] = [];
 
-  // Bullets sleeve — distribuir bulletTotalPct según bulletMix normalizado
   const bulletTotal = config.bulletMix.reduce((s, m) => s + m.weight, 0);
   if (bulletTotal > 0 && config.bulletTotalPct > 0) {
     for (const m of config.bulletMix) {
@@ -83,6 +68,7 @@ function expandConfigToPositions(config: CaseStudyConfig): Position[] {
         positions.push({
           exposureTicker: 'IBDS',
           label: 'iBonds IG ladder (9 vintages)',
+          shortLabel: 'iBonds IG',
           weight: wAum,
           sleeve: 'Bullets',
         });
@@ -90,6 +76,7 @@ function expandConfigToPositions(config: CaseStudyConfig): Position[] {
         positions.push({
           exposureTicker: 'HYG',
           label: 'iBonds HY ladder (IU28+IU29)',
+          shortLabel: 'iBonds HY',
           weight: wAum,
           sleeve: 'Bullets',
         });
@@ -97,6 +84,7 @@ function expandConfigToPositions(config: CaseStudyConfig): Position[] {
         positions.push({
           exposureTicker: 'GHYG',
           label: 'GHYG (HY corp perpetual)',
+          shortLabel: 'GHYG',
           weight: wAum,
           sleeve: 'Bullets',
         });
@@ -104,7 +92,6 @@ function expandConfigToPositions(config: CaseStudyConfig): Position[] {
     }
   }
 
-  // Equity sleeve
   const equityTotal = config.equityMix.reduce((s, m) => s + m.weight, 0);
   if (equityTotal > 0 && config.equityPct > 0) {
     for (const m of config.equityMix) {
@@ -113,23 +100,23 @@ function expandConfigToPositions(config: CaseStudyConfig): Position[] {
       positions.push({
         exposureTicker: m.ticker,
         label: m.ticker,
+        shortLabel: m.ticker,
         weight: wAum,
         sleeve: 'Equity',
       });
     }
   }
 
-  // Cash sleeve — BIL hardcoded en arena.worker.ts
   if (config.cashPct > 0) {
     positions.push({
       exposureTicker: 'BIL',
       label: 'BIL (T-Bills 1-3M)',
+      shortLabel: 'BIL',
       weight: config.cashPct,
       sleeve: 'Cash',
     });
   }
 
-  // Real assets sleeve
   if (config.realAssetsPct > 0) {
     const realTotal = config.realAssetsMix.reduce((s, m) => s + m.weight, 0);
     if (realTotal > 0) {
@@ -139,6 +126,7 @@ function expandConfigToPositions(config: CaseStudyConfig): Position[] {
         positions.push({
           exposureTicker: m.ticker,
           label: m.ticker,
+          shortLabel: m.ticker,
           weight: wAum,
           sleeve: 'RealAssets',
         });
@@ -149,8 +137,7 @@ function expandConfigToPositions(config: CaseStudyConfig): Position[] {
   return positions;
 }
 
-/** Suma pesos por bucket de geo, devolviendo fracciones del AUM (0..1). */
-function aggregateGeo(positions: Position[]): { buckets: Record<string, number>; unclassified: number } {
+function aggregateGeo(positions: Position[]) {
   const out: Record<string, number> = { US: 0, 'DM-ex-US': 0, EM: 0 };
   let unclassified = 0;
   for (const pos of positions) {
@@ -163,7 +150,7 @@ function aggregateGeo(positions: Position[]): { buckets: Record<string, number>;
   return { buckets: out, unclassified };
 }
 
-function aggregateSectors(positions: Position[]): { buckets: Record<string, number>; unclassified: number } {
+function aggregateSectors(positions: Position[]) {
   const out: Record<string, number> = {};
   let unclassified = 0;
   for (const pos of positions) {
@@ -176,13 +163,12 @@ function aggregateSectors(positions: Position[]): { buckets: Record<string, numb
   return { buckets: out, unclassified };
 }
 
-function aggregateCredit(positions: Position[]): { buckets: Record<string, number>; unclassified: number } {
+function aggregateCredit(positions: Position[]) {
   const out: Record<string, number> = { Treasury: 0, IG: 0, HY: 0, Equity: 0 };
   let unclassified = 0;
   for (const pos of positions) {
     const etf = ETF_EXPOSURE[pos.exposureTicker];
     if (!etf) { unclassified += pos.weight; continue; }
-    // 'N/A' del data layer (equity puro) se renombra a 'Equity' aquí
     const bucket = etf.creditQuality === 'N/A' ? 'Equity' : etf.creditQuality;
     out[bucket] += pos.weight;
   }
@@ -195,113 +181,358 @@ function aggregate(positions: Position[], dim: Dimension) {
   return aggregateCredit(positions);
 }
 
-/**
- * Paletas por dimensión. Geo y credit tienen orden fijo (semánticamente
- * jerárquico: US primero, IG primero). Sectors se ordenan por peso al render.
- */
 const GEO_COLORS: Record<string, string> = {
-  US:          '#003566', // navy — mayoría típica
-  'DM-ex-US':  '#3B5BA9', // navy-soft
-  EM:          '#C9A84C', // gold
+  US:          '#003566',
+  'DM-ex-US':  '#3B5BA9',
+  EM:          '#C9A84C',
 };
 
 const CREDIT_COLORS: Record<string, string> = {
-  Treasury: '#475569', // slate-dark — más seguro, "estabilidad"
-  IG:       '#003566', // navy — calidad
-  HY:       '#E97031', // orange — riesgo crediticio
-  Equity:   '#7c3aed', // purple — distintivo
+  Treasury: '#475569',
+  IG:       '#003566',
+  HY:       '#E97031',
+  Equity:   '#7c3aed',
 };
 
-// Paleta cíclica para sectores (~11 categorías GICS + Treasury/MBS para bonds)
 const SECTOR_PALETTE = [
   '#003566', '#E97031', '#C9A84C', '#7c3aed', '#0d9488', '#db2777',
   '#0891b2', '#a16207', '#15803d', '#9f1239', '#475569', '#9333ea',
-  '#0369a1', '#65a30d',
 ];
 
-function colorFor(dim: Dimension, key: string, idx: number): string {
+const UNCLASSIFIED_COLOR = '#9CA3AF';
+
+function colorForCategory(dim: Dimension, key: string, idx: number): string {
+  if (key === 'Sin clasificar' || key === 'Otros') return UNCLASSIFIED_COLOR;
   if (dim === 'geo')    return GEO_COLORS[key] ?? '#999';
   if (dim === 'credit') return CREDIT_COLORS[key] ?? '#999';
   return SECTOR_PALETTE[idx % SECTOR_PALETTE.length];
 }
 
-/**
- * Stacked bar horizontal con segmentos coloreados. Labels solo en segmentos
- * ≥6% (legible). Tooltip nativo via `title`.
- */
-function StackedBar({
-  segments,
-  dim,
-}: {
-  segments: { key: string; pct: number; color: string }[];
-  dim: Dimension;
-}) {
-  const total = segments.reduce((s, x) => s + x.pct, 0);
-  if (total <= 0.001) {
-    return (
-      <div className="h-6 rounded bg-mercantil-line dark:bg-mercantil-dark-line/40 flex items-center justify-center text-[10px] text-mercantil-slate dark:text-mercantil-dark-slate">
-        sin asignación
-      </div>
-    );
+/** Para sectores con muchos buckets, top N + "Otros" para mantener el chart legible. */
+const MAX_CATEGORY_NODES = 8;
+
+type SankeyNodeData = {
+  name: string;
+  /** Tipo de capa: 0 sleeve, 1 etf, 2 category. */
+  nodeType: 'sleeve' | 'etf' | 'category';
+  color: string;
+  /** Peso AUM total (0..1) — para tooltip y rendering. */
+  weight: number;
+};
+
+type SankeyLinkData = {
+  source: number;
+  target: number;
+  value: number;
+  /** Color heredado del sleeve origen (mismo para todo el chain del sleeve). */
+  sleeveColor: string;
+};
+
+function buildSankeyData(positions: Position[], dim: Dimension): {
+  nodes: SankeyNodeData[];
+  links: SankeyLinkData[];
+} {
+  if (positions.length === 0) return { nodes: [], links: [] };
+
+  // ---- Capa 0: sleeves (solo con peso > 0) ----
+  const sleeveOrder: SleeveName[] = ['Bullets', 'Equity', 'Cash', 'RealAssets'];
+  const sleeveWeights = new Map<SleeveName, number>();
+  for (const p of positions) {
+    sleeveWeights.set(p.sleeve, (sleeveWeights.get(p.sleeve) ?? 0) + p.weight);
   }
+  const activeSleeves = sleeveOrder.filter((s) => (sleeveWeights.get(s) ?? 0) > 0);
+
+  // ---- Capa 1: ETFs (en orden por sleeve, agrupados) ----
+  const etfList = positions
+    .filter((p) => p.weight > 0)
+    .sort((a, b) => {
+      const si = activeSleeves.indexOf(a.sleeve) - activeSleeves.indexOf(b.sleeve);
+      if (si !== 0) return si;
+      return b.weight - a.weight;
+    });
+
+  // ---- Capa 2: categorías (con top-N + Otros si sectors) ----
+  const totalAgg = aggregate(positions, dim);
+  let categoryList: { name: string; weight: number }[] = Object.entries(totalAgg.buckets)
+    .filter(([, v]) => v > 0.0005)
+    .map(([name, weight]) => ({ name, weight }));
+
+  // Determinar nombres de las categorías "top" — el resto va a "Otros"
+  const otrosCategories = new Set<string>();
+  if (dim === 'sectors') {
+    categoryList.sort((a, b) => b.weight - a.weight);
+    if (categoryList.length > MAX_CATEGORY_NODES) {
+      const top = categoryList.slice(0, MAX_CATEGORY_NODES - 1);
+      const rest = categoryList.slice(MAX_CATEGORY_NODES - 1);
+      for (const r of rest) otrosCategories.add(r.name);
+      const otrosWeight = rest.reduce((s, c) => s + c.weight, 0);
+      categoryList = [...top, { name: 'Otros', weight: otrosWeight }];
+    }
+  } else if (dim === 'geo') {
+    const order = ['US', 'DM-ex-US', 'EM'];
+    categoryList.sort((a, b) => order.indexOf(a.name) - order.indexOf(b.name));
+  } else {
+    const order = ['Treasury', 'IG', 'HY', 'Equity'];
+    categoryList.sort((a, b) => order.indexOf(a.name) - order.indexOf(b.name));
+  }
+
+  if (totalAgg.unclassified > 0.0005) {
+    categoryList.push({ name: 'Sin clasificar', weight: totalAgg.unclassified });
+  }
+
+  // ---- Combinar en nodos finales ----
+  const sleeveNodes: SankeyNodeData[] = activeSleeves.map((s) => ({
+    name: `${SLEEVE_LABELS[s]} (${((sleeveWeights.get(s) ?? 0) * 100).toFixed(0)}%)`,
+    nodeType: 'sleeve',
+    color: SLEEVE_COLORS[s],
+    weight: sleeveWeights.get(s) ?? 0,
+  }));
+
+  const etfNodes: SankeyNodeData[] = etfList.map((p) => ({
+    name: p.shortLabel,
+    nodeType: 'etf',
+    color: SLEEVE_COLORS[p.sleeve],
+    weight: p.weight,
+  }));
+
+  const catNodes: SankeyNodeData[] = categoryList.map((c, i) => ({
+    name: `${c.name} (${(c.weight * 100).toFixed(1)}%)`,
+    nodeType: 'category',
+    color: colorForCategory(dim, c.name, i),
+    weight: c.weight,
+  }));
+
+  const nodes = [...sleeveNodes, ...etfNodes, ...catNodes];
+  const sleeveOffset = 0;
+  const etfOffset = sleeveNodes.length;
+  const catOffset = sleeveNodes.length + etfNodes.length;
+
+  // ---- Links capa 0 → capa 1 (sleeve → ETF) ----
+  const links: SankeyLinkData[] = [];
+  etfList.forEach((p, i) => {
+    const sleeveIdx = activeSleeves.indexOf(p.sleeve);
+    links.push({
+      source: sleeveOffset + sleeveIdx,
+      target: etfOffset + i,
+      value: p.weight,
+      sleeveColor: SLEEVE_COLORS[p.sleeve],
+    });
+  });
+
+  // ---- Links capa 1 → capa 2 (ETF → categoría) ----
+  const catNameToIdx = new Map(categoryList.map((c, i) => [c.name, catOffset + i]));
+  const otrosIdx = catNameToIdx.get('Otros');
+  const sinClasIdx = catNameToIdx.get('Sin clasificar');
+
+  etfList.forEach((p, etfIdx) => {
+    const exposure = ETF_EXPOSURE[p.exposureTicker];
+    let breakdown: Record<string, number> | null = null;
+    if (dim === 'geo')    breakdown = exposure?.geo ?? null;
+    if (dim === 'sectors') breakdown = exposure?.sectors ?? null;
+    if (dim === 'credit') {
+      if (exposure) {
+        const bucket = exposure.creditQuality === 'N/A' ? 'Equity' : exposure.creditQuality;
+        breakdown = { [bucket]: 100 };
+      }
+    }
+
+    if (!breakdown) {
+      if (sinClasIdx !== undefined) {
+        links.push({
+          source: etfOffset + etfIdx,
+          target: sinClasIdx,
+          value: p.weight,
+          sleeveColor: SLEEVE_COLORS[p.sleeve],
+        });
+      }
+      return;
+    }
+
+    let otrosContrib = 0;
+    for (const [bucket, pct] of Object.entries(breakdown)) {
+      const contrib = (p.weight * pct) / 100;
+      if (contrib <= 0.0001) continue;
+      if (otrosCategories.has(bucket)) {
+        otrosContrib += contrib;
+      } else {
+        const tgt = catNameToIdx.get(bucket);
+        if (tgt === undefined) continue;
+        links.push({
+          source: etfOffset + etfIdx,
+          target: tgt,
+          value: contrib,
+          sleeveColor: SLEEVE_COLORS[p.sleeve],
+        });
+      }
+    }
+    if (otrosContrib > 0.0001 && otrosIdx !== undefined) {
+      links.push({
+        source: etfOffset + etfIdx,
+        target: otrosIdx,
+        value: otrosContrib,
+        sleeveColor: SLEEVE_COLORS[p.sleeve],
+      });
+    }
+  });
+
+  return { nodes, links };
+}
+
+/**
+ * Renderer custom para nodos. Coloca el label fuera del chart:
+ * sleeves → label a la izquierda; ETFs y categorías → label a la derecha.
+ * Sin labels en sleeves intermedios para evitar choque con flujos.
+ */
+type NodeRenderProps = {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  index: number;
+  payload: SankeyNodeData;
+};
+
+function NodeRenderer(props: NodeRenderProps) {
+  const { x, y, width, height, payload } = props;
+  const isLeftSide = payload.nodeType === 'sleeve';
+  const labelX = isLeftSide ? x - 6 : x + width + 6;
+  const anchor = isLeftSide ? 'end' : 'start';
+  const fontSize = payload.nodeType === 'etf' ? 10 : 11;
+  const fontWeight = payload.nodeType === 'etf' ? 400 : 600;
+
   return (
-    <div className="h-7 w-full rounded overflow-hidden flex shadow-sm" role="img" aria-label={`Exposición ${dim}`}>
-      {segments.map((seg) => {
-        const widthPct = (seg.pct / total) * 100;
-        const showLabel = widthPct >= 6;
-        return (
-          <div
-            key={seg.key}
-            style={{ width: `${widthPct}%`, backgroundColor: seg.color }}
-            className="flex items-center justify-center text-[10.5px] font-medium text-white whitespace-nowrap overflow-hidden"
-            title={`${seg.key}: ${(seg.pct * 100).toFixed(1)}%`}
-          >
-            {showLabel && <span className="px-1 truncate">{seg.key} {(seg.pct * 100).toFixed(0)}%</span>}
-          </div>
-        );
-      })}
-    </div>
+    <g>
+      <rect
+        x={x}
+        y={y}
+        width={width}
+        height={height}
+        fill={payload.color}
+        fillOpacity={0.95}
+      />
+      <text
+        x={labelX}
+        y={y + height / 2}
+        textAnchor={anchor}
+        dominantBaseline="middle"
+        fontSize={fontSize}
+        fontWeight={fontWeight}
+        className="fill-mercantil-ink dark:fill-mercantil-dark-ink"
+      >
+        {payload.name}
+      </text>
+    </g>
   );
 }
 
 /**
- * Convierte el output del aggregate (buckets + unclassified) en segmentos
- * ordenados por peso descendente, con colores asignados según dimensión.
+ * Renderer custom para links. Path curvado con el color del sleeve origen,
+ * opacidad baja para que el conjunto sea legible (hover sube opacity).
  */
-function toSegments(
-  result: { buckets: Record<string, number>; unclassified: number },
-  dim: Dimension,
-): { key: string; pct: number; color: string }[] {
-  const entries = Object.entries(result.buckets).filter(([, v]) => v > 0.0005);
-  // Geo y credit en orden fijo (semántico); sectors ordenado por peso
+type LinkRenderProps = {
+  sourceX: number;
+  sourceY: number;
+  sourceControlX: number;
+  targetControlX: number;
+  targetX: number;
+  targetY: number;
+  linkWidth: number;
+  index: number;
+  payload: {
+    source: SankeyNodeData & { sourceLinks: unknown[]; targetLinks: unknown[] };
+    target: SankeyNodeData;
+    value: number;
+    sleeveColor?: string;
+  };
+};
+
+function LinkRenderer(props: LinkRenderProps) {
+  const {
+    sourceX, sourceY, sourceControlX, targetControlX, targetX, targetY, linkWidth, payload,
+  } = props;
+  const color = payload.sleeveColor ?? payload.source.color ?? '#9CA3AF';
+
+  return (
+    <path
+      d={`
+        M${sourceX},${sourceY}
+        C${sourceControlX},${sourceY} ${targetControlX},${targetY} ${targetX},${targetY}
+      `}
+      stroke={color}
+      strokeWidth={Math.max(1, linkWidth)}
+      strokeOpacity={0.35}
+      fill="none"
+    />
+  );
+}
+
+/** Tooltip custom — value es fracción AUM (0..1), mostrarlo como %. */
+type TooltipProps = {
+  active?: boolean;
+  payload?: Array<{ payload: { source?: SankeyNodeData; target?: SankeyNodeData; value?: number; name?: string; weight?: number } }>;
+};
+
+function ExposureTooltip(props: TooltipProps) {
+  if (!props.active || !props.payload || props.payload.length === 0) return null;
+  const p = props.payload[0].payload;
+  // Link tooltip
+  if (p.source && p.target && p.value !== undefined) {
+    return (
+      <div className="rounded border border-mercantil-line bg-white dark:bg-mercantil-dark-panel dark:border-mercantil-dark-line shadow-md px-2.5 py-1.5 text-xs">
+        <div className="font-semibold text-mercantil-ink dark:text-mercantil-dark-ink">
+          {p.source.name} → {p.target.name}
+        </div>
+        <div className="text-mercantil-slate dark:text-mercantil-dark-slate tabular-nums">
+          {(p.value * 100).toFixed(2)}% del AUM
+        </div>
+      </div>
+    );
+  }
+  // Node tooltip
+  if (p.name) {
+    return (
+      <div className="rounded border border-mercantil-line bg-white dark:bg-mercantil-dark-panel dark:border-mercantil-dark-line shadow-md px-2.5 py-1.5 text-xs">
+        <div className="font-semibold text-mercantil-ink dark:text-mercantil-dark-ink">{p.name}</div>
+        {p.weight !== undefined && (
+          <div className="text-mercantil-slate dark:text-mercantil-dark-slate tabular-nums">
+            {(p.weight * 100).toFixed(2)}% del AUM
+          </div>
+        )}
+      </div>
+    );
+  }
+  return null;
+}
+
+/** Tabla compacta de totales por categoría — complemento numérico al chart. */
+function CategorySummary({
+  positions,
+  dim,
+}: {
+  positions: Position[];
+  dim: Dimension;
+}) {
+  const result = aggregate(positions, dim);
+  let entries = Object.entries(result.buckets).filter(([, v]) => v > 0.0005);
   if (dim !== 'sectors') {
-    const order = dim === 'geo' ? ['US', 'DM-ex-US', 'EM']
-                                : ['Treasury', 'IG', 'HY', 'Equity'];
+    const order = dim === 'geo' ? ['US', 'DM-ex-US', 'EM'] : ['Treasury', 'IG', 'HY', 'Equity'];
     entries.sort(([a], [b]) => order.indexOf(a) - order.indexOf(b));
   } else {
     entries.sort(([, a], [, b]) => b - a);
   }
-  const segs = entries.map(([key, pct], i) => ({ key, pct, color: colorFor(dim, key, i) }));
-  if (result.unclassified > 0.0005) {
-    segs.push({ key: 'Sin clasificar', pct: result.unclassified, color: '#9CA3AF' });
-  }
-  return segs;
-}
+  if (result.unclassified > 0.0005) entries.push(['Sin clasificar', result.unclassified]);
 
-/**
- * Card de leyenda — chip color + key + % alineado. Compacto, muestra todos
- * los buckets incluso los pequeños (que no caben como label en la barra).
- */
-function Legend({ segments }: { segments: { key: string; pct: number; color: string }[] }) {
-  if (segments.length === 0) return null;
   return (
-    <div className="grid grid-cols-2 sm:grid-cols-3 gap-x-3 gap-y-1 mt-2 text-xs">
-      {segments.map((s) => (
-        <div key={s.key} className="flex items-center gap-1.5 tabular-nums">
-          <span className="inline-block w-2.5 h-2.5 rounded-sm flex-shrink-0" style={{ backgroundColor: s.color }} />
-          <span className="text-mercantil-slate dark:text-mercantil-dark-slate truncate">{s.key}</span>
+    <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-x-3 gap-y-1 text-xs">
+      {entries.map(([key, pct], i) => (
+        <div key={key} className="flex items-center gap-1.5 tabular-nums">
+          <span
+            className="inline-block w-2.5 h-2.5 rounded-sm flex-shrink-0"
+            style={{ backgroundColor: colorForCategory(dim, key, i) }}
+          />
+          <span className="text-mercantil-slate dark:text-mercantil-dark-slate truncate">{key}</span>
           <span className="ml-auto text-mercantil-ink dark:text-mercantil-dark-ink font-medium">
-            {(s.pct * 100).toFixed(1)}%
+            {(pct * 100).toFixed(1)}%
           </span>
         </div>
       ))}
@@ -311,43 +542,9 @@ function Legend({ segments }: { segments: { key: string; pct: number; color: str
 
 export default function ExposureDrillDownPanel({ config }: { config: CaseStudyConfig }) {
   const [dim, setDim] = useState<Dimension>('geo');
-  const [etfDetailOpen, setEtfDetailOpen] = useState(false);
 
   const positions = useMemo(() => expandConfigToPositions(config), [config]);
-
-  // Nivel 1: portafolio completo
-  const portfolioAgg = useMemo(() => aggregate(positions, dim), [positions, dim]);
-  const portfolioSegs = useMemo(() => toSegments(portfolioAgg, dim), [portfolioAgg, dim]);
-
-  // Nivel 2: por sleeve
-  const sleeveBreakdown = useMemo(() => {
-    const sleeves: SleeveName[] = ['Bullets', 'Equity', 'Cash', 'RealAssets'];
-    return sleeves.map((sleeve) => {
-      const subPositions = positions.filter((p) => p.sleeve === sleeve);
-      const sleeveTotalAum = subPositions.reduce((s, p) => s + p.weight, 0);
-      if (sleeveTotalAum <= 0) return null;
-      // Reescalamos pesos del sleeve a fracciones de SU AUM (no del total) para
-      // que la barra del sleeve sume 100% — la fracción del AUM total se
-      // muestra como subtítulo.
-      const scaled = subPositions.map((p) => ({ ...p, weight: p.weight / sleeveTotalAum }));
-      const agg = aggregate(scaled, dim);
-      const segs = toSegments(agg, dim);
-      return { sleeve, aumPct: sleeveTotalAum, segments: segs };
-    }).filter((x): x is { sleeve: SleeveName; aumPct: number; segments: typeof portfolioSegs } => x !== null);
-  }, [positions, dim, portfolioSegs]);
-
-  // Nivel 3: por ETF (lista)
-  const etfBreakdown = useMemo(() => {
-    return positions
-      .filter((p) => p.weight > 0)
-      .sort((a, b) => b.weight - a.weight)
-      .map((p) => {
-        const scaled = [{ ...p, weight: 1 }]; // 100% del ETF, para mostrar SU breakdown interno
-        const agg = aggregate(scaled, dim);
-        const segs = toSegments(agg, dim);
-        return { ...p, segments: segs };
-      });
-  }, [positions, dim]);
+  const sankeyData = useMemo(() => buildSankeyData(positions, dim), [positions, dim]);
 
   const dimLabels: Record<Dimension, string> = {
     geo: 'Geografía',
@@ -357,9 +554,12 @@ export default function ExposureDrillDownPanel({ config }: { config: CaseStudyCo
 
   const dimDescriptions: Record<Dimension, string> = {
     geo: 'Buckets MVP: US / DM-ex-US (Europa+Japón+Asia desarrollada) / EM. Refleja domicilio de issuers (para bonos) y país listing del emisor (para equity).',
-    sectors: 'Buckets GICS-like (~11 sectores) + Treasury y Agency MBS para bonos soberanos. Sectores expresados como % del AUM total ponderado por la composición de cada ETF.',
-    credit: 'Treasury / IG (investment-grade corp) / HY (high-yield corp) / Equity. Equity es el etiquetado contable — no implica calidad crediticia, separa renta variable de renta fija.',
+    sectors: 'Buckets GICS-like (~11 sectores) + Treasury y Agency MBS para bonos soberanos. Top 7 + "Otros" cuando hay más de 8 buckets activos.',
+    credit: 'Treasury / IG (investment-grade corp) / HY (high-yield corp) / Equity. Equity es etiquetado contable — no implica calidad crediticia, separa renta variable de renta fija.',
   };
+
+  // Altura dinámica: más alta para sectores (más nodos del lado derecho)
+  const chartHeight = dim === 'sectors' ? 520 : 380;
 
   return (
     <div data-testid="exposure-panel" className="bg-white dark:bg-mercantil-dark-panel rounded-lg border border-mercantil-line dark:border-mercantil-dark-line p-5">
@@ -371,14 +571,13 @@ export default function ExposureDrillDownPanel({ config }: { config: CaseStudyCo
           snapshot {ETF_EXPOSURE_SNAPSHOT_DATE}
         </span>
       </div>
-      <p className="text-xs text-mercantil-slate dark:text-mercantil-dark-slate mb-4">
-        Drill-down de la composición actual por tres dimensiones. Responde "¿a qué está expuesto el fondo hoy?".
-        Es complementario al fan chart (que responde "¿cómo le va a ir?"). Data viene de las hojas de hechos
-        de los ETFs subyacentes — para bonos, perfil de issuers del índice underlying (iBoxx Liquid IG/HY).
+      <p className="text-xs text-mercantil-slate dark:text-mercantil-dark-slate mb-3">
+        Cascada <strong>Sleeve → ETF → Categoría</strong>: cada cinta es proporcional al peso AUM y hereda el color del sleeve
+        origen. Responde "¿a qué está expuesto el fondo hoy?" — complementario al fan chart. Hover en cualquier cinta para ver el detalle.
       </p>
 
       {/* Selector de dimensión */}
-      <div className="inline-flex rounded-full border border-mercantil-line dark:border-mercantil-dark-line p-0.5 bg-mercantil-mist dark:bg-mercantil-dark-bg/40 mb-4">
+      <div className="inline-flex rounded-full border border-mercantil-line dark:border-mercantil-dark-line p-0.5 bg-mercantil-mist dark:bg-mercantil-dark-bg/40 mb-3">
         {(['geo', 'sectors', 'credit'] as Dimension[]).map((d) => (
           <button
             key={d}
@@ -395,108 +594,51 @@ export default function ExposureDrillDownPanel({ config }: { config: CaseStudyCo
         ))}
       </div>
 
-      <p className="text-[11px] italic text-mercantil-slate dark:text-mercantil-dark-slate mb-3">
+      <p className="text-[11px] italic text-mercantil-slate dark:text-mercantil-dark-slate mb-2">
         {dimDescriptions[dim]}
       </p>
 
-      {/* NIVEL 1 — Portafolio */}
-      <div className="mb-5">
-        <div className="text-xs uppercase tracking-wider text-mercantil-ink dark:text-mercantil-dark-ink font-semibold mb-1.5">
-          Portafolio total
+      {/* Chart Sankey */}
+      {sankeyData.nodes.length === 0 ? (
+        <div className="h-32 flex items-center justify-center text-xs text-mercantil-slate dark:text-mercantil-dark-slate italic border border-dashed border-mercantil-line dark:border-mercantil-dark-line rounded">
+          Sin asignación — verificá que la allocation sume 100%.
         </div>
-        <StackedBar segments={portfolioSegs} dim={dim} />
-        <Legend segments={portfolioSegs} />
-      </div>
+      ) : (
+        <div className="w-full overflow-x-auto">
+          <Sankey
+            width={920}
+            height={chartHeight}
+            data={sankeyData}
+            nodePadding={22}
+            nodeWidth={10}
+            linkCurvature={0.5}
+            iterations={64}
+            margin={{ top: 8, right: 200, bottom: 8, left: 100 }}
+            node={NodeRenderer as never}
+            link={LinkRenderer as never}
+          >
+            <Tooltip content={<ExposureTooltip />} />
+          </Sankey>
+        </div>
+      )}
 
-      {/* NIVEL 2 — Por sleeve */}
-      <div className="mb-5">
-        <div className="text-xs uppercase tracking-wider text-mercantil-ink dark:text-mercantil-dark-ink font-semibold mb-2">
-          Por sleeve
+      {/* Mini-tabla de totales por categoría */}
+      <div className="mt-3 pt-3 border-t border-mercantil-line dark:border-mercantil-dark-line">
+        <div className="text-[11px] uppercase tracking-wider text-mercantil-slate dark:text-mercantil-dark-slate mb-1.5">
+          Totales por categoría
         </div>
-        <div className="space-y-3">
-          {sleeveBreakdown.map((s) => (
-            <div key={s.sleeve}>
-              <div className="flex items-baseline justify-between gap-2 mb-1">
-                <div className="flex items-baseline gap-2">
-                  <span
-                    className="inline-block w-2 h-2 rounded-sm"
-                    style={{ backgroundColor: SLEEVE_COLORS[s.sleeve] }}
-                  />
-                  <span className="text-xs font-semibold text-mercantil-ink dark:text-mercantil-dark-ink">
-                    {SLEEVE_LABELS[s.sleeve]}
-                  </span>
-                  <span className="text-[11px] text-mercantil-slate dark:text-mercantil-dark-slate tabular-nums">
-                    {(s.aumPct * 100).toFixed(0)}% del AUM
-                  </span>
-                </div>
-              </div>
-              <StackedBar segments={s.segments} dim={dim} />
-            </div>
-          ))}
-        </div>
+        <CategorySummary positions={positions} dim={dim} />
       </div>
-
-      {/* NIVEL 3 — Por ETF (collapsible) */}
-      <details
-        open={etfDetailOpen}
-        onToggle={(e) => setEtfDetailOpen((e.target as HTMLDetailsElement).open)}
-        className="rounded border border-mercantil-line dark:border-mercantil-dark-line"
-      >
-        <summary className="px-3 py-2 cursor-pointer text-xs font-semibold uppercase tracking-wider text-mercantil-ink dark:text-mercantil-dark-ink list-none flex items-center justify-between">
-          <span>Por ETF · {etfBreakdown.length} posiciones</span>
-          <span className="text-mercantil-orange transition-transform" style={{ transform: etfDetailOpen ? 'rotate(180deg)' : 'none' }}>
-            ▾
-          </span>
-        </summary>
-        <div className="px-3 pb-3 pt-1 space-y-2.5">
-          {etfBreakdown.map((p) => {
-            const meta = ETF_EXPOSURE[p.exposureTicker];
-            const hasData = (dim === 'credit') ? !!meta
-                          : (dim === 'geo') ? !!meta?.geo
-                          : !!meta?.sectors;
-            return (
-              <div key={`${p.sleeve}-${p.exposureTicker}-${p.label}`} className="border-t border-mercantil-line/60 dark:border-mercantil-dark-line/60 pt-2 first:border-t-0 first:pt-0">
-                <div className="flex items-baseline justify-between gap-2 mb-1">
-                  <div className="flex items-baseline gap-1.5 min-w-0">
-                    <span
-                      className="inline-block w-1.5 h-1.5 rounded-sm flex-shrink-0"
-                      style={{ backgroundColor: SLEEVE_COLORS[p.sleeve] }}
-                    />
-                    <span className="text-xs font-semibold text-mercantil-ink dark:text-mercantil-dark-ink truncate">
-                      {p.label}
-                    </span>
-                    <span className="text-[10px] text-mercantil-slate dark:text-mercantil-dark-slate truncate">
-                      · {SLEEVE_LABELS[p.sleeve]}
-                    </span>
-                  </div>
-                  <span className="text-[11px] text-mercantil-slate dark:text-mercantil-dark-slate tabular-nums whitespace-nowrap">
-                    {(p.weight * 100).toFixed(1)}% AUM
-                  </span>
-                </div>
-                {hasData ? (
-                  <StackedBar segments={p.segments} dim={dim} />
-                ) : (
-                  <div className="text-[11px] italic text-mercantil-slate dark:text-mercantil-dark-slate px-2 py-1 bg-mercantil-mist dark:bg-mercantil-dark-bg/40 rounded">
-                    {p.exposureTicker === 'CAPE'
-                      ? 'Estrategia de rotación sectorial Shiller CAPE — sin breakdown estable trans-mes.'
-                      : 'Sin breakdown disponible para esta dimensión.'}
-                  </div>
-                )}
-              </div>
-            );
-          })}
-        </div>
-      </details>
 
       <p className="mt-3 text-[10.5px] text-mercantil-slate/70 dark:text-mercantil-dark-slate/70 italic">
         Para bonos (iBonds IG/HY, GHYG, HYG, LQD, AGG, BIL, SHY, IEI): geografía y sectores reflejan composición del
-        índice underlying (iBoxx Liquid IG, iBoxx Liquid HY, Bloomberg US Agg). Para equity: data oficial de cada
-        fondo. Re-snapshot trimestral desde EODHD vía <code>scripts/fetch-etf-exposure.mjs</code>.
+        índice underlying (iBoxx Liquid IG, iBoxx Liquid HY, Bloomberg US Agg). Para equity: data oficial de cada fondo.
+        Re-snapshot trimestral desde EODHD vía <code>scripts/fetch-etf-exposure.mjs</code>.
       </p>
     </div>
   );
 }
 
-// Tipos re-exportados para tests si hace falta
+// Re-exports para tests
 export type { Position, Dimension, SleeveName };
-export { expandConfigToPositions, aggregateGeo, aggregateSectors, aggregateCredit };
+export { expandConfigToPositions, aggregateGeo, aggregateSectors, aggregateCredit, buildSankeyData };

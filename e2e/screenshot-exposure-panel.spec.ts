@@ -47,27 +47,29 @@ test('screenshots de exposure drill-down panel', async ({ page }) => {
   const panel = page.getByTestId('exposure-panel');
   await expect(panel).toBeVisible();
 
-  // Default = Geografía
+  // Movemos el mouse fuera del panel antes de cada captura para evitar
+  // que un hover tooltip de Recharts quede dibujado en el screenshot.
+  const mouseAway = async () => {
+    await page.mouse.move(0, 0);
+    await page.waitForTimeout(250);
+  };
+
+  await mouseAway();
   await panel.screenshot({ path: `${OUT_DIR}/exposure-1-geografia.png` });
 
   // Click Sectores
   await page.getByRole('button', { name: /^Sectores$/ }).click();
-  await page.waitForTimeout(200);
+  await page.waitForTimeout(400);
+  await panel.scrollIntoViewIfNeeded();
+  await mouseAway();
   await panel.screenshot({ path: `${OUT_DIR}/exposure-2-sectores.png` });
 
   // Click Calidad crediticia
   await page.getByRole('button', { name: /Calidad crediticia/i }).click();
-  await page.waitForTimeout(200);
-  await panel.screenshot({ path: `${OUT_DIR}/exposure-3-credit.png` });
-
-  // Volver a Geografía y abrir el detalle por ETF
-  await page.getByRole('button', { name: /Geografía/i }).click();
-  await page.waitForTimeout(150);
-  const etfSummary = page.getByText(/Por ETF · \d+ posiciones/i);
-  await etfSummary.click();
-  await page.waitForTimeout(250);
+  await page.waitForTimeout(400);
   await panel.scrollIntoViewIfNeeded();
-  await panel.screenshot({ path: `${OUT_DIR}/exposure-4-por-etf.png` });
+  await mouseAway();
+  await panel.screenshot({ path: `${OUT_DIR}/exposure-3-credit.png` });
 
   console.log('screenshots emitidos en', OUT_DIR);
 });
