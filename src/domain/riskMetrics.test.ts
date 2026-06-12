@@ -23,6 +23,7 @@ import {
   pathMaxDrawdown,
   percentile,
   crossSimMaxDrawdown,
+  computeDrawdownStats,
   mapToMarketTicker,
   Z_SCORES,
   getReturnsMatrix,
@@ -268,6 +269,69 @@ describe('percentile', () => {
   it('p95 cerca del max para n=20', () => {
     const arr = Array.from({ length: 20 }, (_, i) => i + 1);
     expect(percentile(arr, 0.95)).toBeCloseTo(19.05, 6);
+  });
+});
+
+describe('computeDrawdownStats', () => {
+  it('paths flat: ddMed/ddP95 = 0 en todo t, maxDD = 0', () => {
+    const Hp1 = 5;
+    const nSims = 4;
+    const flat = new Float64Array(nSims * Hp1);
+    for (let i = 0; i < flat.length; i++) flat[i] = 100;
+    const r = computeDrawdownStats(flat, nSims, Hp1 - 1);
+    expect(r.ddMed.every((v) => v === 0)).toBe(true);
+    expect(r.ddP95.every((v) => v === 0)).toBe(true);
+    expect(r.maxDDMed).toBe(0);
+    expect(r.maxDDP95).toBe(0);
+  });
+
+  it('V-shape uniforme: ddMed sigue la V; maxDDMed = profundidad', () => {
+    // Todos los sims tienen el mismo V-shape: 100, 80, 60, 80, 100
+    const Hp1 = 5;
+    const nSims = 10;
+    const path = new Float64Array(nSims * Hp1);
+    const vshape = [100, 80, 60, 80, 100];
+    for (let s = 0; s < nSims; s++) {
+      for (let t = 0; t < Hp1; t++) path[s * Hp1 + t] = vshape[t];
+    }
+    const r = computeDrawdownStats(path, nSims, Hp1 - 1);
+    expect(r.ddMed[0]).toBeCloseTo(0, 9);
+    expect(r.ddMed[1]).toBeCloseTo(0.2, 9);
+    expect(r.ddMed[2]).toBeCloseTo(0.4, 9);
+    expect(r.ddMed[3]).toBeCloseTo(0.2, 9);
+    expect(r.maxDDMed).toBeCloseTo(0.4, 9);
+    expect(r.maxDDP95).toBeCloseTo(0.4, 9);
+  });
+
+  it('mixed shapes: maxDDP95 > maxDDMed (tail más profundo que típico)', () => {
+    const Hp1 = 5;
+    const nSims = 100;
+    const path = new Float64Array(nSims * Hp1);
+    for (let s = 0; s < nSims; s++) {
+      // sim s tiene un dip de profundidad (s+1)% en t=2
+      const dipFactor = 1 - (s + 1) / 100;
+      const shape = [100, 100, 100 * dipFactor, 100, 100];
+      for (let t = 0; t < Hp1; t++) path[s * Hp1 + t] = shape[t];
+    }
+    const r = computeDrawdownStats(path, nSims, Hp1 - 1);
+    expect(r.maxDDP95).toBeGreaterThan(r.maxDDMed);
+    expect(r.maxDDP99).toBeGreaterThanOrEqual(r.maxDDP95);
+  });
+
+  it('ddP95 ≥ ddMed en todo t', () => {
+    const Hp1 = 6;
+    const nSims = 20;
+    const path = new Float64Array(nSims * Hp1);
+    for (let s = 0; s < nSims; s++) {
+      for (let t = 0; t < Hp1; t++) {
+        // path con jitter: peak ~100, dips aleatorios deterministicos
+        path[s * Hp1 + t] = 100 + Math.sin(s + t) * 5 - (t % 3 === 0 ? s * 0.5 : 0);
+      }
+    }
+    const r = computeDrawdownStats(path, nSims, Hp1 - 1);
+    for (let t = 0; t < Hp1; t++) {
+      expect(r.ddP95[t]).toBeGreaterThanOrEqual(r.ddMed[t] - 1e-9);
+    }
   });
 });
 

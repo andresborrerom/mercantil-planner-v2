@@ -41,6 +41,8 @@ import RealAssetsMixSelector from './RealAssetsMixSelector';
 import EstudioMedidaActions from './EstudioMedidaActions';
 import ExposureDrillDownPanel from './ExposureDrillDownPanel';
 import RiskPanel from './RiskPanel';
+import DrawdownPanel from './DrawdownPanel';
+import { crossSimMaxDrawdown } from '../domain/riskMetrics';
 import { useEquityCatalogByTicker } from '../hooks/useEquityMeta';
 import { useTTMPanel } from '../hooks/useTTMPanel';
 import {
@@ -681,6 +683,16 @@ export default function CaseStudyPanel() {
       ...sub,
     };
   }, [result, viewEvaluation]);
+
+  // Max drawdown stats (issue #30) — computado cross-sim sobre el aumPath
+  // completo (no usa effectiveStats / view conditioning, siempre unconditional
+  // para preservar el "rango natural" del modelo).
+  const drawdownStats = useMemo(() => {
+    if (!result) return null;
+    const nom = crossSimMaxDrawdown(result.aumPath, result.meta.nSims, result.meta.horizonMonths);
+    const real = crossSimMaxDrawdown(result.aumPathReal, result.meta.nSims, result.meta.horizonMonths);
+    return { nom, real };
+  }, [result]);
 
   // Distribución unconditional de la inflación en la ventana (siempre, para
   // que la UI muestre "rango natural del modelo" como referencia visual).
@@ -1532,6 +1544,12 @@ export default function CaseStudyPanel() {
               <StatBox label="Prob > 0" value={fmtPct((effectiveStats ?? result.stats).probPos, 0)} />
               <StatBox label="AUM final mediano" value={fmtMoney((effectiveStats ?? result.stats).finalAumMed)} />
               <StatBox label="Net wealth mediano" value={fmtMoney((effectiveStats ?? result.stats).finalNetMed)} />
+              {drawdownStats && (
+                <>
+                  <StatBox label="Max DD mediano" value={fmtPct(drawdownStats.nom.med, 1)} />
+                  <StatBox label="Max DD p95" value={fmtPct(drawdownStats.nom.p95, 1)} />
+                </>
+              )}
             </div>
           </div>
 
@@ -1554,6 +1572,12 @@ export default function CaseStudyPanel() {
               <StatBox label="Preservó poder adq." value={fmtPct((effectiveStats ?? result.stats).realProbPreservedPower, 0)} />
               <StatBox label="AUM real final" value={fmtMoney((effectiveStats ?? result.stats).realFinalAumMed)} />
               <StatBox label="Net wealth real" value={fmtMoney((effectiveStats ?? result.stats).realFinalNetMed)} />
+              {drawdownStats && (
+                <>
+                  <StatBox label="Max DD mediano real" value={fmtPct(drawdownStats.real.med, 1)} />
+                  <StatBox label="Max DD p95 real" value={fmtPct(drawdownStats.real.p95, 1)} />
+                </>
+              )}
             </div>
           </div>
           {/* Detalle de sleeves (collapsible) */}
@@ -1564,6 +1588,9 @@ export default function CaseStudyPanel() {
 
           {/* Atribución de riesgo — Component VaR / scatter / heatmap (#28 follow-up) */}
           <RiskPanel config={config} initialAum={config.initialAumUsd} />
+
+          {/* Curva de drawdown + stats max DD (#30) */}
+          <DrawdownPanel result={result} config={config} />
 
           {/* Rollover regimes — panel explicativo con barras + cards collapsible */}
           <RegimesDetailPanel result={result} config={config} totalEvents={totalEvents} />

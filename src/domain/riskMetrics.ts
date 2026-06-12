@@ -353,3 +353,65 @@ export function crossSimMaxDrawdown(
     p99: percentile(maxDDs, 0.99),
   };
 }
+
+/**
+ * Stats completos de drawdown sobre todas las sims: cross-time percentiles
+ * (mediana + p95 del drawdown en cada t) Y cross-sim percentiles del max DD.
+ *
+ * El primer set se usa para el chart "underwater equity curve" (drawdown
+ * over time); el segundo para tiles de stats (issue #30).
+ *
+ * Layout aumPath: [nSims × (H+1)] row-major.
+ *
+ * Memoria: aloca un Float64Array de tamaño nSims × (H+1). Para
+ * nSims=5000 × H=240 son ~9.6MB — aceptable en browser.
+ */
+export function computeDrawdownStats(
+  aumPath: ArrayLike<number>,
+  nSims: number,
+  horizonMonths: number,
+): {
+  /** Mediana del drawdown en cada t (length Hp1, valores 0..1). */
+  ddMed: Float64Array;
+  /** P95 del drawdown en cada t — el "5% peor" caso. */
+  ddP95: Float64Array;
+  /** Mediana del max DD across sims (escalar). */
+  maxDDMed: number;
+  /** P95 del max DD across sims (escalar — el peor 5% de los maxDDs). */
+  maxDDP95: number;
+  /** P99 (peor 1%). */
+  maxDDP99: number;
+} {
+  const Hp1 = horizonMonths + 1;
+  // Storage: dd[s][t] full matrix
+  const ddArr = new Float64Array(nSims * Hp1);
+  const maxDDs = new Float64Array(nSims);
+  for (let s = 0; s < nSims; s++) {
+    let peak = -Infinity;
+    let maxDD = 0;
+    for (let t = 0; t < Hp1; t++) {
+      const v = aumPath[s * Hp1 + t];
+      if (v > peak) peak = v;
+      const dd = peak > 0 ? (peak - v) / peak : 0;
+      ddArr[s * Hp1 + t] = dd;
+      if (dd > maxDD) maxDD = dd;
+    }
+    maxDDs[s] = maxDD;
+  }
+  // Per-t percentiles
+  const ddMed = new Float64Array(Hp1);
+  const ddP95 = new Float64Array(Hp1);
+  const colBuf = new Float64Array(nSims);
+  for (let t = 0; t < Hp1; t++) {
+    for (let s = 0; s < nSims; s++) colBuf[s] = ddArr[s * Hp1 + t];
+    ddMed[t] = percentile(colBuf, 0.5);
+    ddP95[t] = percentile(colBuf, 0.95);
+  }
+  return {
+    ddMed,
+    ddP95,
+    maxDDMed: percentile(maxDDs, 0.5),
+    maxDDP95: percentile(maxDDs, 0.95),
+    maxDDP99: percentile(maxDDs, 0.99),
+  };
+}
