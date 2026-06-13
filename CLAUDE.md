@@ -229,9 +229,33 @@ Imaginemos que viene otro endowment de cliente y necesitamos un caso aparte. Pas
 ## Última actualización
 
 2026-05-12 (sesión H5b + Cap 3b presentación + fix Pages + slider + sleeves + este CLAUDE.md).
+2026-06-05 (PR #27 fix PDF OOM + percentiles reales + HTM con realAssets · tracker de pendientes movido a GitHub Issues).
 
 Próximas extensiones esperadas:
 - Más case studies particulares (otros endowments / fundaciones / family offices)
 - PDF export del case study (existe para Comparador A/B)
 - Tab de comparación entre case studies (cuando haya ≥2)
 - Migración a Node 24 cuando expire deprecation de Node 20 (junio 2026)
+
+---
+
+## Pendientes (tracker)
+
+**Source of truth: GitHub Issues** (https://github.com/andresborrerom/mercantil-planner-v2/issues).
+NO documentar pendientes solo en cuerpo de PRs ni en chat — se pierden entre sesiones.
+Cuando aparezca un pendiente nuevo en sesión, abrir issue ANTES de cerrar la sesión.
+
+Pendientes activos al 2026-06-05 (post PR #27):
+
+1. **Equity mix selector — input numérico con draft local** — [issue #29](https://github.com/andresborrerom/mercantil-planner-v2/issues/29).
+   Hoy solo hay slider; falta input numérico al lado siguiendo patrón canónico §3
+   (`NumInput`/`DpfRateInput` en `CaseStudyPanel.tsx`).
+
+2. **Drawdown metrics en stats panel** — [issue #30](https://github.com/andresborrerom/mercantil-planner-v2/issues/30).
+   Agregar `maxDrawdownMed` y `maxDrawdownP95`, nominal y real, al stats card del CaseStudyPanel.
+   Verificar si el worker ya computa el path o hay que agregarlo al aggregate.
+
+3. **Drill-down de exposición portafolio → sleeve → ETF** — [issue #28](https://github.com/andresborrerom/mercantil-planner-v2/issues/28).
+   Vista cliente-facing con 3 dimensiones (geografía / sectores / calidad crediticia) y 3 niveles
+   de agregación. Complemento natural al fan chart (responde "¿a qué está expuesto el fondo HOY?"
+   vs "¿cómo le va a ir?"). Ver issue para decisiones de diseño pendientes.
